@@ -1,4 +1,4 @@
-const { app, BrowserWindow, dialog, ipcMain } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, safeStorage } = require('electron');
 const { spawn } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -82,9 +82,15 @@ ipcMain.handle('import-openapi', async (_, payload) => {
 });
 
 ipcMain.handle('run-tests', async (_, payload) => {
-  const data = await hostRequest('POST', '/api/run', {
-    folderPath: payload.folderPath,
-  });
+  const data = await hostRequest(
+    'POST',
+    '/api/run',
+    { folderPath: payload.folderPath },
+    {
+      localSecrets: readLocalSecrets(payload.folderPath),
+      environment: payload.environment || null,
+    },
+  );
 
   return {
     exitCode: data.exitCode,
@@ -126,8 +132,38 @@ ipcMain.handle('save-collection-settings', async (_, payload) => {
     {
       variables: payload.variables || {},
       connections: payload.connections || {},
+      secrets: payload.secrets || {},
     },
   );
+});
+
+ipcMain.handle('get-secret-providers', async () => {
+  const data = await hostRequest('GET', '/api/secrets/providers');
+  return data?.providers || [];
+});
+
+// Values of secrets whose provider is "local" are kept encrypted with the operating system's
+// secure storage (Keychain / DPAPI / libsecret). The renderer can write or delete them but never read them back.
+ipcMain.handle('list-local-secrets', async (_, payload) =>
+  Object.keys(readSecretStore()[payload.folderPath] || {}),
+);
+
+ipcMain.handle('set-local-secret', async (_, payload) => {
+  assertSecureStorage();
+  const store = readSecretStore();
+  store[payload.folderPath] = {
+    ...store[payload.folderPath],
+    [payload.name]: safeStorage.encryptString(payload.value).toString('base64'),
+  };
+  writeSecretStore(store);
+});
+
+ipcMain.handle('delete-local-secret', async (_, payload) => {
+  const store = readSecretStore();
+  if (store[payload.folderPath]) {
+    delete store[payload.folderPath][payload.name];
+    writeSecretStore(store);
+  }
 });
 
 ipcMain.handle('get-test-case', async (_, payload) => {
@@ -166,6 +202,44 @@ app.on('before-quit', () => {
     hostProcess.kill();
   }
 });
+
+function secretStorePath() {
+  return path.join(app.getPath('userData'), 'local-secrets.json');
+}
+
+function readSecretStore() {
+  try {
+    return JSON.parse(fs.readFileSync(secretStorePath(), 'utf8'));
+  } catch {
+    return {};
+  }
+}
+
+function writeSecretStore(store) {
+  fs.writeFileSync(secretStorePath(), JSON.stringify(store), { mode: 0o600 });
+}
+
+function assertSecureStorage() {
+  const weakBackend =
+    typeof safeStorage.getSelectedStorageBackend === 'function' &&
+    safeStorage.getSelectedStorageBackend() === 'basic_text';
+  if (!safeStorage.isEncryptionAvailable() || weakBackend) {
+    throw new Error('Secure storage is not available on this system.');
+  }
+}
+
+function readLocalSecrets(folderPath) {
+  const stored = readSecretStore()[folderPath] || {};
+  const secrets = {};
+  for (const [name, encrypted] of Object.entries(stored)) {
+    try {
+      secrets[name] = safeStorage.decryptString(Buffer.from(encrypted, 'base64'));
+    } catch {
+      // Unreadable entry (e.g. stored by another user account): skip it; the run reports it as missing.
+    }
+  }
+  return secrets;
+}
 
 async function hostRequest(method, route, query, body) {
   const baseUrl = await ensureHostRunning();

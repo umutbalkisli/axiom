@@ -46,6 +46,17 @@ internal static class ProgramEntry
         return (jsonMode, filtered);
     }
 
+    private static (string? Value, string[] Args) ExtractOption(string[] args, string name)
+    {
+        var index = Array.FindIndex(args, a => string.Equals(a, name, StringComparison.OrdinalIgnoreCase));
+        if (index < 0 || index + 1 >= args.Length)
+        {
+            return (null, args);
+        }
+
+        return (args[index + 1], args.Where((_, i) => i != index && i != index + 1).ToArray());
+    }
+
     private static int PrintHelpAndReturn()
     {
         if (!isJsonResponseMode)
@@ -72,15 +83,20 @@ internal static class ProgramEntry
 
     private static async Task<int> HandleRunAsync(string[] args)
     {
+        // --env <name> (or AXIOM_ENVIRONMENT) selects environment-specific secret sources.
+        var (environment, remaining) = ExtractOption(args, "--env");
+        args = remaining;
+        environment ??= Environment.GetEnvironmentVariable("AXIOM_ENVIRONMENT");
+
         if (args.Length < 2)
         {
-            return await WriteUsageAndReturnAsync("Usage: axiom run <collection-folder>");
+            return await WriteUsageAndReturnAsync("Usage: axiom run <collection-folder> [--env <name>]");
         }
 
         try
         {
             await using var services = new ServiceCollection().AddAxiomCore().BuildServiceProvider();
-            var result = await services.GetRequiredService<CollectionRunner>().RunAsync(args[1]);
+            var result = await services.GetRequiredService<CollectionRunner>().RunAsync(args[1], new RunOptions { Environment = environment });
 
             if (isJsonResponseMode)
             {
@@ -126,7 +142,7 @@ internal static class ProgramEntry
     private static void PrintHelp()
     {
         Console.WriteLine("Axiom CLI");
-        Console.WriteLine("  axiom run <collection-folder>");
+        Console.WriteLine("  axiom run <collection-folder> [--env <name>] [--json]");
         Console.WriteLine("  axiom serve [--port <number>]");
     }
 

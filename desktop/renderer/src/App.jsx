@@ -4,7 +4,14 @@ import Overview from './components/Overview.jsx';
 import Builder from './components/Builder.jsx';
 import RunReport from './components/RunReport.jsx';
 import CollectionSetup from './components/CollectionSetup.jsx';
-import { getLanguage, getTheme, normalizeSteps, parseReport, toYamlSteps, translations } from './i18n.js';
+import {
+  getLanguage,
+  getTheme,
+  normalizeSteps,
+  parseReport,
+  toYamlSteps,
+  translations,
+} from './i18n.js';
 
 const api = window.axiomApi;
 const newStep = (type, index) => ({
@@ -42,7 +49,12 @@ export default function App() {
   const [view, setView] = useState('overview');
   const [folder, setFolder] = useState(null);
   const [hasCollection, setHasCollection] = useState(false);
-  const [collection, setCollection] = useState({ variables: {}, connections: {} });
+  const [collection, setCollection] = useState(toCollectionState(null));
+  const [environment, setEnvironment] = useState(
+    () => localStorage.getItem('axiom-environment') || '',
+  );
+  const [secretProviders, setSecretProviders] = useState([]);
+  const [localSecretNames, setLocalSecretNames] = useState([]);
   const [tests, setTests] = useState([]);
   const [activeFile, setActiveFile] = useState(null);
   const [test, setTest] = useState(emptyTest);
@@ -54,6 +66,9 @@ export default function App() {
     localStorage.setItem('axiom-language', language);
     document.documentElement.lang = language;
   }, [language]);
+  useEffect(() => {
+    localStorage.setItem('axiom-environment', environment);
+  }, [environment]);
   useEffect(() => {
     localStorage.setItem('axiom-theme', theme);
     const media = window.matchMedia('(prefers-color-scheme: dark)');
@@ -73,9 +88,13 @@ export default function App() {
     Promise.all([
       api.getCollection({ folderPath: folder }),
       api.listTests({ folderPath: folder }),
-    ]).then(([data, list]) => {
-      setCollection({ variables: data?.variables || {}, connections: data?.connections || {} });
+      api.listLocalSecrets({ folderPath: folder }),
+      api.getSecretProviders(),
+    ]).then(([data, list, localNames, providers]) => {
+      setCollection(toCollectionState(data));
       setTests(list.tests || []);
+      setLocalSecretNames(localNames || []);
+      setSecretProviders(providers || []);
     });
   }, [folder, hasCollection]);
   const openFolder = async () => {
@@ -124,7 +143,7 @@ export default function App() {
       const list = await api.listTests({ folderPath: destination.folderPath });
       setTests(list.tests || []);
       const data = await api.getCollection({ folderPath: destination.folderPath });
-      setCollection({ variables: data?.variables || {}, connections: data?.connections || {} });
+      setCollection(toCollectionState(data));
       setView('overview');
     } catch (error) {
       window.alert(error.message || t.importFailed);
@@ -178,7 +197,10 @@ export default function App() {
   const run = async () => {
     setView('run');
     setRawOutput(t.running);
-    const result = await api.runTests({ folderPath: folder });
+    const result = await api.runTests({
+      folderPath: folder,
+      environment: environments.includes(environment) ? environment : null,
+    });
     const output = [result.stdout, result.stderr].filter(Boolean).join('\n').trim();
     setRawOutput(output || t.noOutput);
     setReport(parseReport(output, tests, t));
@@ -188,9 +210,28 @@ export default function App() {
       folderPath: folder,
       variables: collection.variables,
       connections: collection.connections,
+      secrets: Object.fromEntries(
+        Object.entries(collection.secrets).map(([name, reference]) => [
+          name,
+          withLocalKeys(name, reference),
+        ]),
+      ),
     });
     setMessage(t.saved);
   };
+  const saveLocalSecret = async (name, value) => {
+    try {
+      await api.setLocalSecret({ folderPath: folder, name, value });
+      setLocalSecretNames((names) => [...new Set([...names, name])]);
+    } catch (error) {
+      window.alert(error.message);
+    }
+  };
+  const deleteLocalSecret = async (name) => {
+    await api.deleteLocalSecret({ folderPath: folder, name });
+    setLocalSecretNames((names) => names.filter((n) => n !== name));
+  };
+  const environments = environmentNames(collection.secrets);
   const updateStep = (index, patch) =>
     setTest((current) => ({
       ...current,
@@ -246,9 +287,29 @@ export default function App() {
             </h1>
             <p className="axiom-status">{message || (folder ? t.chooseHint : t.chooseFolder)}</p>
           </div>
-          <button className="btn btn-primary" disabled={!hasCollection} onClick={run}>
-            {t.run}
-          </button>
+          <div className="d-flex align-items-center gap-2">
+            {environments.length > 0 && (
+              <select
+                className="form-select"
+                title={t.environment}
+                aria-label={t.environment}
+                value={environments.includes(environment) ? environment : ''}
+                onChange={(event) => setEnvironment(event.target.value)}
+              >
+                <option value="">
+                  {t.environment}: {t.environmentDefault}
+                </option>
+                {environments.map((name) => (
+                  <option key={name} value={name}>
+                    {t.environment}: {name}
+                  </option>
+                ))}
+              </select>
+            )}
+            <button className="btn btn-primary" disabled={!hasCollection} onClick={run}>
+              {t.run}
+            </button>
+          </div>
         </header>
         <main className="axiom-main">
           {view === 'setup' && (
@@ -261,6 +322,10 @@ export default function App() {
               setCollection={setCollection}
               hasCollection={hasCollection}
               saveSettings={saveSettings}
+              secretProviders={secretProviders}
+              localSecretNames={localSecretNames}
+              saveLocalSecret={saveLocalSecret}
+              deleteLocalSecret={deleteLocalSecret}
               tests={tests}
               openTest={openTest}
               newTest={() => {
@@ -298,6 +363,36 @@ export default function App() {
       </div>
     </div>
   );
+}
+
+// Names of every environment that has an override on at least one secret.
+function environmentNames(secrets) {
+  const names = new Set();
+  Object.values(secrets || {}).forEach((reference) =>
+    Object.keys(reference.environments || {}).forEach((name) => name && names.add(name)),
+  );
+  return [...names];
+}
+
+// A local secret's value is stored under the secret's own name, so its key always follows the name.
+function withLocalKeys(name, reference) {
+  const localKey = (source) => (source.provider === 'local' ? { ...source, key: name } : source);
+  const next = localKey(reference);
+  if (!reference.environments) return next;
+  return {
+    ...next,
+    environments: Object.fromEntries(
+      Object.entries(reference.environments).map(([env, source]) => [env, localKey(source)]),
+    ),
+  };
+}
+
+function toCollectionState(data) {
+  return {
+    variables: data?.variables || {},
+    connections: data?.connections || {},
+    secrets: data?.secrets || {},
+  };
 }
 
 function slugify(value) {

@@ -1,4 +1,5 @@
 using Axiom.Documents;
+using Axiom.Models;
 using Axiom.Parsing;
 using Axiom.Runtime;
 using Axiom.Serialization;
@@ -20,6 +21,7 @@ public sealed class CollectionManagementService
         var document = DeserializeFile<CollectionDocument>(path) ?? new CollectionDocument();
         document.Variables ??= new(StringComparer.OrdinalIgnoreCase);
         document.Connections ??= new(StringComparer.OrdinalIgnoreCase);
+        document.Secrets ??= new(StringComparer.OrdinalIgnoreCase);
         document.RunSettings ??= new RunSettingsDocument();
         document.RequestDefaults ??= new RequestDefaultsDocument();
         document.RequestDefaults.Headers ??= new(StringComparer.OrdinalIgnoreCase);
@@ -33,11 +35,22 @@ public sealed class CollectionManagementService
         SerializeFile(CollectionPaths.CollectionFile(folderPath), collection);
     }
 
-    public void SaveCollectionSettings(string folderPath, Dictionary<string, object?> variables, Dictionary<string, object?> connections)
+    public void SaveCollectionSettings(string folderPath, Dictionary<string, object?> variables, Dictionary<string, object?> connections, Dictionary<string, SecretReference>? secrets = null)
     {
         var collection = GetCollection(folderPath) ?? throw new FileNotFoundException($"{CollectionPaths.CollectionFileName} not found");
         collection.Variables = NormalizeDictionary(variables);
         collection.Connections = NormalizeDictionary(connections);
+        if (secrets is not null)
+        {
+            collection.Secrets = new Dictionary<string, SecretReference>(secrets, StringComparer.OrdinalIgnoreCase);
+        }
+        SerializeFile(CollectionPaths.CollectionFile(folderPath), collection);
+    }
+
+    public void SaveCollectionSecrets(string folderPath, Dictionary<string, SecretReference> secrets)
+    {
+        var collection = GetCollection(folderPath) ?? throw new FileNotFoundException($"{CollectionPaths.CollectionFileName} not found");
+        collection.Secrets = new Dictionary<string, SecretReference>(secrets, StringComparer.OrdinalIgnoreCase);
         SerializeFile(CollectionPaths.CollectionFile(folderPath), collection);
     }
 

@@ -33,6 +33,7 @@ backend/
                       assertion engine and operators, DB query executor,
                       template resolver
     Validation/       save-time validation of tests and collection settings
+    Secrets/          secret providers (env, file, k8s, vault, local), resolver, output masking
     Services/         collection management, collection initializer, OpenAPI importer
     AxiomServiceCollectionExtensions.cs   AddAxiomCore() DI registration
   src/Axiom/          executable: CLI (`run`, `serve`) and local HTTP host
@@ -51,6 +52,7 @@ Everything below is registered through DI in `AddAxiomCore()`; add your own regi
 | A new step `type` | `IStepExecutor` (+ `IStepValidator` for save-time checks) | `TestCaseExecutor` picks it up by `Type` |
 | A new assertion operator | `IAssertionOperator` | Usable as `operator:` in YAML |
 | A new database provider | `IDbConnectionFactory` | Usable as `provider:` in a connection |
+| A new secret store (vault, cloud KMS, ...) | `ISecretProvider` | Usable as `provider:` in `secrets:` |
 
 ## Requirements
 
@@ -63,6 +65,7 @@ From the repository root:
 
 ```bash
 dotnet run --project backend/src/Axiom -- run <collection-folder>
+dotnet run --project backend/src/Axiom -- run <collection-folder> --env ci
 dotnet run --project backend/src/Axiom -- run <collection-folder> --json
 dotnet run --project backend/src/Axiom -- serve [--port <number>]
 ```
@@ -86,13 +89,15 @@ Used by the desktop app (via Electron IPC). All collection endpoints take a `fol
 | GET | `/api/collection` | Read collection |
 | POST | `/api/collection/init` | Create an empty collection |
 | POST | `/api/collection/variables` | Save collection variables |
-| POST | `/api/collection/settings` | Save run settings |
+| POST | `/api/collection/settings` | Save variables, connections and secret references |
+| POST | `/api/collection/secrets` | Save secret references only |
+| GET | `/api/secrets/providers` | List secret providers and their key formats |
 | POST | `/api/collection/import-openapi` | Import scenarios from an OpenAPI URL |
 | GET | `/api/tests` | List test scenarios |
 | GET | `/api/tests/{fileName}` | Read one scenario |
 | POST | `/api/tests` | Create or update a scenario |
 | DELETE | `/api/tests/{fileName}` | Delete a scenario |
-| POST | `/api/run` | Run the collection and return the report |
+| POST | `/api/run` | Run the collection and return the report (optional body: `localSecrets`, `environment`) |
 
 ## Collection layout
 
@@ -164,6 +169,51 @@ Step types: `request` (`method`, `url`, `query_params`, `headers`, `body`) and `
 
 Each step also stores its results in the context as `<step_id>_status`, `<step_id>_duration_ms`, `<step_id>_response_text`, `<step_id>_response_json` (request) and `<step_id>_rows`, `<step_id>_row_count` (DB), so later steps can reference them.
 
+## Secrets
+
+Never put passwords or tokens in `collection.yaml`; it lives in Git. Declare a **reference** instead and use `{{secret.<name>}}` wherever a value is needed (variables, headers, URLs, bodies, SQL, connection strings, assertion values):
+
+```yaml
+secrets:
+  api_token: { provider: env,   key: API_TOKEN }
+  db_password: { provider: vault, key: "secret/myapp/db#password" }
+  webhook_key: { provider: k8s,   key: "my-secret/webhook-key" }
+variables:
+  auth_header: "Bearer {{secret.api_token}}"
+connections:
+  orders_db:
+    provider: sqlserver
+    connection_string: "Server=db;Database=orders;User Id=app;Password={{secret.db_password}}"
+```
+
+### Different sources per environment
+
+The same secret often comes from different places: a local value on a laptop, environment variables in CI, a Kubernetes secret in a cluster. The `provider`/`key` pair is the default source; `environments` overrides it for a named environment:
+
+```yaml
+secrets:
+  db_password:
+    provider: local            # default: value kept on this machine (desktop)
+    key: db_password
+    environments:
+      ci:   { provider: env, key: DB_PASSWORD }
+      prod: { provider: k8s, key: "orders-db/password" }
+```
+
+Select the environment with `axiom run <folder> --env ci` (or `AXIOM_ENVIRONMENT=ci`), or with the environment dropdown next to **Run** in the desktop app (shown once any secret has an override). A secret with no override for the selected environment uses its default source, and environment names are case-insensitive.
+
+All declared secrets are read before a run starts; if any cannot be read the run fails with a message naming the secret and provider (never a value).
+
+| Provider | `key` format | Configuration (environment variables) |
+| --- | --- | --- |
+| `env` | `ENV_VAR_NAME` | none. Best for CI/CD |
+| `file` | `relative/file/name` | `AXIOM_SECRETS_DIR`. Works with mounted Kubernetes secret volumes and Docker secrets; keys cannot escape the directory |
+| `k8s` | `secret-name/data-key` or `namespace/secret-name/data-key` | In a pod it uses the service account (needs `get` on the secret). Elsewhere set `AXIOM_K8S_API_URL` (+ `AXIOM_K8S_TOKEN`); `AXIOM_K8S_NAMESPACE` sets the default namespace |
+| `vault` | `mount/path#field` | `VAULT_ADDR`, `VAULT_TOKEN`, optional `VAULT_NAMESPACE`; KV v2 by default, `AXIOM_VAULT_KV_VERSION=1` for KV v1 |
+| `local` | secret name | Values are supplied by the caller for a single run. The desktop app keeps them encrypted with the OS secure storage (Keychain / DPAPI / libsecret) outside the collection folder and never shows them again |
+
+Provider connection settings come only from the environment, never from collection files, so a shared collection cannot redirect secret lookups. Any secret value of 4+ characters is replaced with `********` in reports and JSON output. To add another store, implement `ISecretProvider` and register it (see "Extending the engine").
+
 ## Assertion sources and operators
 
 Sources:
@@ -196,5 +246,5 @@ Other scripts: `npm run build` (renderer only) and `npm run format` (Prettier).
 
 1. JSON path / response schema assertion builder in UI
 2. Rich report screen with trends and failed-step diagnostics
-3. Plugin-based connectors and secure secret management
+3. Plugin-based connectors (load extra providers, step types and operators from a plugins folder)
 4. Packaging for Windows/macOS installers

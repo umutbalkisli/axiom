@@ -12,4 +12,8 @@ contextBridge.exposeInMainWorld('axiomApi', {
   getTestCase: (payload) => ipcRenderer.invoke('get-test-case', payload),
   saveTestCase: (payload) => ipcRenderer.invoke('save-test-case', payload),
   deleteTestCase: (payload) => ipcRenderer.invoke('delete-test-case', payload),
+  getSecretProviders: () => ipcRenderer.invoke('get-secret-providers'),
+  listLocalSecrets: (payload) => ipcRenderer.invoke('list-local-secrets', payload),
+  setLocalSecret: (payload) => ipcRenderer.invoke('set-local-secret', payload),
+  deleteLocalSecret: (payload) => ipcRenderer.invoke('delete-local-secret', payload),
 });

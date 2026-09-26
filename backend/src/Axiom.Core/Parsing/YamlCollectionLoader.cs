@@ -58,6 +58,7 @@ public sealed class YamlCollectionLoader
     {
         collection.Connections ??= new(StringComparer.OrdinalIgnoreCase);
         collection.Variables ??= new(StringComparer.OrdinalIgnoreCase);
+        collection.Secrets ??= new(StringComparer.OrdinalIgnoreCase);
         collection.RunSettings ??= new();
         collection.RequestDefaults ??= new();
         collection.RequestDefaults.Headers ??= new(StringComparer.OrdinalIgnoreCase);
@@ -86,6 +87,12 @@ public sealed class YamlCollectionLoader
 
             var builder = new SqliteConnectionStringBuilder(connection.ConnectionString);
             if (string.IsNullOrWhiteSpace(builder.DataSource))
+            {
+                continue;
+            }
+
+            // A templated path (e.g. from a secret) is only known at run time; leave it untouched.
+            if (builder.DataSource.Contains("{{", StringComparison.Ordinal))
             {
                 continue;
             }

@@ -1,4 +1,6 @@
 using Axiom.Documents;
+using Axiom.Models;
+using Axiom.Secrets;
 using Axiom.Runtime;
 using Axiom.Services;
 using Axiom.Validation;
@@ -44,7 +46,10 @@ internal static class HostServerService
         app.MapPost("/api/collection/init", InitCollectionAsync);
         app.MapPost("/api/collection/variables", SaveCollectionVariablesAsync);
         app.MapPost("/api/collection/settings", SaveCollectionSettingsAsync);
+        app.MapPost("/api/collection/secrets", SaveCollectionSecretsAsync);
         app.MapPost("/api/collection/import-openapi", ImportOpenApiAsync);
+        app.MapGet("/api/secrets/providers", (IEnumerable<ISecretProvider> providers) =>
+            Results.Ok(new { providers = providers.Select(p => new { name = p.Name, keyFormat = p.KeyFormat }) }));
     }
 
     private static void MapTestEndpoints(WebApplication app)
@@ -105,13 +110,32 @@ internal static class HostServerService
 
         var errors = CollectionSettingsValidator.ValidateVariables(payload.Variables)
             .Concat(CollectionSettingsValidator.ValidateConnections(payload.Connections))
+            .Concat(payload.Secrets is null ? [] : CollectionSettingsValidator.ValidateSecrets(payload.Secrets))
             .ToList();
         if (errors.Count > 0)
         {
             return ValidationFailed(errors);
         }
 
-        manager.SaveCollectionSettings(folderPath, payload.Variables, payload.Connections);
+        manager.SaveCollectionSettings(folderPath, payload.Variables, payload.Connections, payload.Secrets);
+        return Results.Ok(new { ok = true });
+    }
+
+    private static async Task<IResult> SaveCollectionSecretsAsync(HttpRequest request, string folderPath, CollectionManagementService manager, CancellationToken cancellationToken)
+    {
+        var secrets = await request.ReadFromJsonAsync<Dictionary<string, SecretReference>>(cancellationToken);
+        if (secrets is null)
+        {
+            return Results.BadRequest(new { message = "Invalid payload." });
+        }
+
+        var errors = CollectionSettingsValidator.ValidateSecrets(secrets);
+        if (errors.Count > 0)
+        {
+            return ValidationFailed(errors);
+        }
+
+        manager.SaveCollectionSecrets(folderPath, secrets);
         return Results.Ok(new { ok = true });
     }
 
@@ -192,11 +216,14 @@ internal static class HostServerService
         }
     }
 
-    private static async Task<IResult> RunCollectionAsync(string folderPath, CollectionRunner runner, CancellationToken cancellationToken)
+    private static async Task<IResult> RunCollectionAsync(HttpRequest request, string folderPath, CollectionRunner runner, CancellationToken cancellationToken)
     {
         try
         {
-            var result = await runner.RunAsync(folderPath, cancellationToken);
+            var payload = request.ContentLength > 0
+                ? await request.ReadFromJsonAsync<RunPayload>(cancellationToken)
+                : null;
+            var result = await runner.RunAsync(folderPath, new RunOptions { LocalSecrets = payload?.LocalSecrets, Environment = payload?.Environment }, cancellationToken);
             return Results.Ok(new
             {
                 exitCode = result.FailedCount == 0 ? 0 : 2,
@@ -225,7 +252,10 @@ internal static class HostServerService
 
     private sealed record CollectionSettingsPayload(
         Dictionary<string, object?> Variables,
-        Dictionary<string, object?> Connections);
+        Dictionary<string, object?> Connections,
+        Dictionary<string, SecretReference>? Secrets);
+
+    private sealed record RunPayload(Dictionary<string, string>? LocalSecrets, string? Environment);
 
     private sealed record InitCollectionPayload(string CollectionName);
 

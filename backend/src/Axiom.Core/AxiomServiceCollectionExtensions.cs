@@ -1,5 +1,6 @@
 using Axiom.Parsing;
 using Axiom.Runtime;
+using Axiom.Secrets;
 using Axiom.Services;
 using Axiom.Validation;
 using Microsoft.Extensions.DependencyInjection;
@@ -11,7 +12,7 @@ public static class AxiomServiceCollectionExtensions
 {
     /// <summary>
     /// Registers the Axiom engine. Extend it by registering more <see cref="IStepExecutor"/>,
-    /// <see cref="IStepValidator"/>, <see cref="IAssertionOperator"/> or <see cref="IDbConnectionFactory"/> services.
+    /// <see cref="IStepValidator"/>, <see cref="IAssertionOperator"/>, <see cref="IDbConnectionFactory"/> or <see cref="ISecretProvider"/> services.
     /// </summary>
     public static IServiceCollection AddAxiomCore(this IServiceCollection services)
     {
@@ -32,6 +33,15 @@ public static class AxiomServiceCollectionExtensions
         services.AddSingleton<IStepValidator, RequestStepValidator>();
         services.AddSingleton<IStepValidator, DbQueryStepValidator>();
         services.TryAddSingleton<TestCaseValidator>();
+
+        // Secret providers. Connection settings for these come from the environment, not from collection files.
+        services.AddSingleton<ISecretProvider, EnvSecretProvider>();
+        services.AddSingleton<ISecretProvider, FileSecretProvider>();
+        services.AddSingleton<ISecretProvider, KubernetesSecretProvider>();
+        services.AddSingleton<ISecretProvider, VaultSecretProvider>();
+        services.AddScoped<LocalSecretProvider>();
+        services.AddScoped<ISecretProvider>(sp => sp.GetRequiredService<LocalSecretProvider>());
+        services.AddScoped<SecretResolver>();
 
         // Per-run services (disposed with the run's scope).
         services.AddSingleton<IDbConnectionFactory, SqliteConnectionFactory>();

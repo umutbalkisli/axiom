@@ -29,8 +29,13 @@ public sealed class DbQueryStepExecutor(IDbQueryExecutor dbQueryExecutor, Assert
         }
 
         var sql = TemplateResolver.ResolveString(step.Sql, variables);
+        var resolvedConnection = new DbConnectionDefinition
+        {
+            Provider = connectionDefinition.Provider,
+            ConnectionString = context.Secrets.Expand(connectionDefinition.ConnectionString),
+        };
         var watch = Stopwatch.StartNew();
-        var rows = await dbQueryExecutor.QueryAsync(connectionDefinition, sql, cancellationToken);
+        var rows = await dbQueryExecutor.QueryAsync(resolvedConnection, sql, cancellationToken);
         watch.Stop();
 
         variables[$"{step.Id}_rows"] = rows;

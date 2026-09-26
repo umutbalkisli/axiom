@@ -2,13 +2,17 @@ using System.Collections.Concurrent;
 using System.Threading.Channels;
 using Axiom.Models;
 using Axiom.Parsing;
+using Axiom.Secrets;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Axiom.Runtime;
 
 public sealed class CollectionRunner(YamlCollectionLoader loader, IServiceScopeFactory scopeFactory)
 {
-    public async Task<CollectionExecutionResult> RunAsync(string folderPath, CancellationToken cancellationToken = default)
+    public Task<CollectionExecutionResult> RunAsync(string folderPath, CancellationToken cancellationToken = default) =>
+        RunAsync(folderPath, new RunOptions(), cancellationToken);
+
+    public async Task<CollectionExecutionResult> RunAsync(string folderPath, RunOptions options, CancellationToken cancellationToken = default)
     {
         var loaded = loader.Load(folderPath);
         var startedAt = DateTimeOffset.UtcNow;
@@ -16,6 +20,10 @@ public sealed class CollectionRunner(YamlCollectionLoader loader, IServiceScopeF
         // One scope per run: HTTP client and cached DB connections live exactly as long as the run.
         await using var scope = scopeFactory.CreateAsyncScope();
         var testExecutor = scope.ServiceProvider.GetRequiredService<TestCaseExecutor>();
+
+        scope.ServiceProvider.GetRequiredService<LocalSecretProvider>().Load(options.LocalSecrets);
+        var secrets = await scope.ServiceProvider.GetRequiredService<SecretResolver>()
+            .ResolveAsync(loaded.Collection.Secrets, options.Environment, cancellationToken);
 
         var testCases = loaded.TestCases;
         var maxParallel = Math.Max(1, loaded.Collection.RunSettings.MaxParallelTestCases);
@@ -43,7 +51,7 @@ public sealed class CollectionRunner(YamlCollectionLoader loader, IServiceScopeF
             {
                 await foreach (var testCase in channel.Reader.ReadAllAsync(cancellationToken))
                 {
-                    var result = await testExecutor.ExecuteAsync(loaded.Collection, testCase, cancellationToken);
+                    var result = await testExecutor.ExecuteAsync(loaded.Collection, testCase, secrets, cancellationToken);
                     results.Add(result);
                 }
             }, cancellationToken))
