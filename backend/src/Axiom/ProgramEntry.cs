@@ -107,7 +107,7 @@ internal static class ProgramEntry
                 Console.WriteLine(ReportFormatterService.Format(result));
             }
 
-            return result.FailedCount == 0 ? 0 : 2;
+            return result.UnsuccessfulCount == 0 ? 0 : 2;
         }
         catch (Exception ex)
         {

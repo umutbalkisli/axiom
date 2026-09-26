@@ -171,7 +171,9 @@ export default function Sidebar({
                               ? t.passed
                               : runStatus[item.fileName] === 'fail'
                                 ? t.failed
-                                : t.notRun
+                                : runStatus[item.fileName] === 'error'
+                                  ? t.couldNotEvaluate
+                                  : t.notRun
                           }
                         />
                         <span className="tree-item-name">{item.name}</span>

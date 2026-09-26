@@ -12,5 +12,8 @@ public interface IAssertionOperator
     /// </summary>
     bool SearchesRawText => false;
 
+    /// <summary>True for presence checks (exists, is_missing, ...) that are meaningful when the value is not there at all.</summary>
+    bool HandlesMissing => false;
+
     bool Evaluate(object? actual, object? expected, ComparisonOptions options);
 }

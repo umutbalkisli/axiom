@@ -7,6 +7,12 @@ public sealed class StepExecutionResult
     public required string Name { get; init; }
     public required IReadOnlyList<AssertionResult> Assertions { get; init; }
     public bool Passed { get; init; }
+
+    /// <summary>Error when the step (or an assertion, or a shared step inside it) could not be evaluated; Failed when it ran but did not pass.</summary>
+    public RunOutcome Outcome =>
+        Error is not null || Assertions.Any(a => a.Outcome == RunOutcome.Error) || (Children?.Any(c => c.Outcome == RunOutcome.Error) ?? false)
+            ? RunOutcome.Error
+            : Passed ? RunOutcome.Passed : RunOutcome.Failed;
     public string? Error { get; init; }
     public int? StatusCode { get; init; }
     public double DurationMs { get; init; }

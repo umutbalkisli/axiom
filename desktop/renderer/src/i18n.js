@@ -393,16 +393,18 @@ export function buildReport(result, tests) {
       fileName,
       method: known.method,
       endpoint: known.endpoint,
-      passed: Boolean(testCase.passed),
+      outcome: outcomeOf(testCase.outcome, testCase.passed),
       durationMs: new Date(testCase.completedAt) - new Date(testCase.startedAt),
       steps: (testCase.steps || []).map(mapStep),
     };
   });
-  const passed = cases.filter((item) => item.passed).length;
+  const count = (outcome) => cases.filter((item) => item.outcome === outcome).length;
+  const passed = count('passed');
   return {
     total: cases.length,
     passed,
-    failed: cases.length - passed,
+    failed: count('failed'),
+    errors: count('error'),
     rate: cases.length ? ((passed / cases.length) * 100).toFixed(0) : '0',
     durationMs: new Date(result.completedAt) - new Date(result.startedAt),
     completedAt: new Date(result.completedAt).toLocaleTimeString(),
@@ -410,11 +412,16 @@ export function buildReport(result, tests) {
   };
 }
 
+// The host reports Passed / Failed / Error: Failed ran and did not pass, Error could not be evaluated at all.
+function outcomeOf(outcome, passed) {
+  return String(outcome || (passed ? 'Passed' : 'Failed')).toLowerCase();
+}
+
 function mapStep(step) {
   return {
     name: step.name,
     type: step.type,
-    passed: Boolean(step.passed),
+    outcome: outcomeOf(step.outcome, step.passed),
     error: step.error,
     statusCode: step.statusCode,
     rowCount: step.rowCount,
@@ -422,7 +429,7 @@ function mapStep(step) {
     children: (step.children || []).map(mapStep),
     assertions: (step.assertions || []).map((assertion) => ({
       text: describeAssertion(assertion),
-      passed: Boolean(assertion.passed),
+      outcome: outcomeOf(assertion.outcome, assertion.passed),
       expected: assertion.expected,
       actual: assertion.actual,
       error: assertion.error,

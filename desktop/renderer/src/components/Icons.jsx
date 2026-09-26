@@ -93,6 +93,12 @@ const PATHS = {
     </>
   ),
   spinner: <path d="M12 3a9 9 0 019 9" />,
+  alert: (
+    <>
+      <path d="M12 4l9 16H3L12 4z" />
+      <path d="M12 10v4M12 17h.01" />
+    </>
+  ),
   sliders: (
     <>
       <path d="M4 7h10M18 7h2M4 12h4M12 12h8M4 17h10M18 17h2" />

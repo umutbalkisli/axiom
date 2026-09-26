@@ -20,7 +20,7 @@ internal static class ReportFormatterService
             $"Completed At    : {result.CompletedAt:O}",
             $"Duration (ms)   : {totalDuration:F0}",
             string.Empty,
-            $"Total: {result.TotalCount} | Passed: {result.PassedCount} | Failed: {result.FailedCount} | Success: {result.SuccessRate:F2}%",
+            $"Total: {result.TotalCount} | Passed: {result.PassedCount} | Failed: {result.FailedCount} | Errors: {result.ErrorCount} | Success: {result.SuccessRate:F2}%",
             DividerLine,
         };
 
@@ -35,7 +35,7 @@ internal static class ReportFormatterService
 
     private static void AddTestLines(List<string> lines, TestCaseExecutionResult test)
     {
-        var status = test.Passed ? "PASS" : "FAIL";
+        var status = Label(test.Outcome);
         var duration = (test.CompletedAt - test.StartedAt).TotalMilliseconds;
         lines.Add($"[{status}] {test.Name} ({duration:F0} ms)");
         lines.Add($"  File: {test.SourceFile}");
@@ -49,7 +49,7 @@ internal static class ReportFormatterService
     private static void AddStepLines(List<string> lines, StepExecutionResult step, int depth = 0)
     {
         var indent = new string(' ', depth * 4);
-        var stepStatus = step.Passed ? "OK" : "ERR";
+        var stepStatus = step.Outcome switch { RunOutcome.Passed => "OK", RunOutcome.Failed => "FAIL", _ => "ERR" };
         lines.Add($"{indent}    - {stepStatus} {step.Id} ({step.Type}) [{step.DurationMs:F0} ms]");
 
         if (!string.IsNullOrWhiteSpace(step.Error))
@@ -70,7 +70,7 @@ internal static class ReportFormatterService
 
     private static void AddAssertionLines(List<string> lines, AssertionResult assertion, string indent)
     {
-        var status = assertion.Passed ? "PASS" : "FAIL";
+        var status = Label(assertion.Outcome);
         lines.Add($"{indent}      [{status}] Assertion: source={assertion.Source}{(string.IsNullOrEmpty(assertion.Path) ? string.Empty : "." + assertion.Path)}{(string.IsNullOrEmpty(assertion.Aggregate) ? string.Empty : $" ({assertion.Aggregate})")}, op={assertion.Operator}, expected={assertion.Expected}, actual={assertion.Actual}");
 
         if (!assertion.Passed && !string.IsNullOrWhiteSpace(assertion.Error))
@@ -78,4 +78,12 @@ internal static class ReportFormatterService
             lines.Add($"{indent}        Error: {assertion.Error}");
         }
     }
+
+    /// <summary>ERROR marks something that could not be evaluated, as opposed to FAIL for something that ran and did not pass.</summary>
+    private static string Label(RunOutcome outcome) => outcome switch
+    {
+        RunOutcome.Passed => "PASS",
+        RunOutcome.Failed => "FAIL",
+        _ => "ERROR",
+    };
 }

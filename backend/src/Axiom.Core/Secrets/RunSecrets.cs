@@ -93,7 +93,7 @@ public sealed partial class RunSecrets
         Operator = assertion.Operator,
         Expected = MaskValue(assertion.Expected),
         Actual = MaskValue(assertion.Actual),
-        Passed = assertion.Passed,
+        Outcome = assertion.Outcome,
         Error = Mask(assertion.Error),
     };
 

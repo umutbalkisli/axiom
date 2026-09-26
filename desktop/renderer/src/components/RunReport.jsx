@@ -14,23 +14,21 @@ function formatValue(value) {
   return text.length > 200 ? `${text.slice(0, 200)}…` : text;
 }
 
-function StatusIcon({ passed }) {
-  return (
-    <Icon
-      name={passed ? 'checkCircle' : 'xCircle'}
-      size={16}
-      className={passed ? 'text-success' : 'text-danger'}
-    />
-  );
+const OUTCOME_ICON = { passed: 'checkCircle', failed: 'xCircle', error: 'alert' };
+const OUTCOME_CLASS = { passed: 'text-success', failed: 'text-danger', error: 'text-warn' };
+
+function StatusIcon({ outcome }) {
+  return <Icon name={OUTCOME_ICON[outcome]} size={16} className={OUTCOME_CLASS[outcome]} />;
 }
 
 function AssertionLine({ t, assertion }) {
+  const { outcome } = assertion;
   return (
-    <li className={`assertion-line ${assertion.passed ? 'pass' : 'fail'}`}>
-      <StatusIcon passed={assertion.passed} />
+    <li className={`assertion-line ${outcome}`}>
+      <StatusIcon outcome={outcome} />
       <div className="assertion-text">
         <span className="mono">{assertion.text}</span>
-        {!assertion.passed && (
+        {outcome === 'failed' && (
           <div className="assertion-fail">
             {assertion.error && !assertion.error.startsWith("Expected '") && (
               <div>{assertion.error}</div>
@@ -43,10 +41,21 @@ function AssertionLine({ t, assertion }) {
                 {t.actualLabel}: <code>{formatValue(assertion.actual)}</code>
               </span>
             </div>
+            {assertion.error?.endsWith('was not found)') && (
+              <div className="muted-note">
+                {assertion.error.slice(assertion.error.lastIndexOf('('))}
+              </div>
+            )}
+          </div>
+        )}
+        {outcome === 'error' && (
+          <div className="assertion-error">
+            <strong>{t.couldNotEvaluate}</strong>
+            <div>{assertion.error}</div>
           </div>
         )}
       </div>
-      {assertion.passed && assertion.actual !== undefined && (
+      {outcome === 'passed' && assertion.actual !== undefined && (
         <span className="mono muted actual">{formatValue(assertion.actual)}</span>
       )}
     </li>
@@ -57,7 +66,7 @@ function StepResult({ t, step }) {
   return (
     <div className="result-step">
       <div className="result-step-head">
-        <StatusIcon passed={step.passed} />
+        <StatusIcon outcome={step.outcome} />
         <strong>{step.name}</strong>
         <span className="chip">
           {step.type === 'db_query' ? 'SQL' : step.type === 'include' ? t.sharedBadge : step.type}
@@ -75,7 +84,12 @@ function StepResult({ t, step }) {
         <span className="spacer" />
         <span className="mono muted">{formatDuration(step.durationMs)}</span>
       </div>
-      {step.error && <div className="error-box">{step.error}</div>}
+      {step.error && (
+        <div className="error-box">
+          <strong>{t.stepCouldNotRun}</strong>
+          <div>{step.error}</div>
+        </div>
+      )}
       {step.assertions.length > 0 && (
         <ul className="assertion-list">
           {step.assertions.map((assertion, i) => (
@@ -96,9 +110,9 @@ function StepResult({ t, step }) {
 
 function TestRow({ t, test, open, toggle }) {
   return (
-    <div className={`result-row ${test.passed ? 'pass' : 'fail'} ${open ? 'open' : ''}`}>
+    <div className={`result-row ${test.outcome} ${open ? 'open' : ''}`}>
       <button type="button" className="result-head" aria-expanded={open} onClick={toggle}>
-        <StatusIcon passed={test.passed} />
+        <StatusIcon outcome={test.outcome} />
         {test.method ? <MethodBadge method={test.method} /> : null}
         <span className="result-name">{test.name}</span>
         {test.endpoint && <span className="mono muted result-endpoint">{test.endpoint}</span>}
@@ -122,7 +136,8 @@ export default function RunReport({ t, report, running, rawOutput, run, environm
   const [filter, setFilter] = useState('all');
   const [rawOpen, setRawOpen] = useState(false);
   const [expanded, setExpanded] = useState(
-    () => new Set((report?.tests || []).flatMap((test, i) => (test.passed ? [] : [i]))),
+    () =>
+      new Set((report?.tests || []).flatMap((test, i) => (test.outcome === 'passed' ? [] : [i]))),
   );
 
   if (running) {
@@ -173,10 +188,11 @@ export default function RunReport({ t, report, running, rawOutput, run, environm
     );
   }
 
-  const allPassed = report.failed === 0;
+  const allPassed = report.failed === 0 && report.errors === 0;
+  const bannerTone = allPassed ? 'pass' : report.failed === 0 ? 'warn' : 'fail';
   const visible = report.tests
     .map((test, index) => ({ test, index }))
-    .filter(({ test }) => filter === 'all' || (filter === 'failed' ? !test.passed : test.passed));
+    .filter(({ test }) => filter === 'all' || test.outcome === filter);
   const toggle = (index) =>
     setExpanded((current) => {
       const next = new Set(current);
@@ -184,15 +200,26 @@ export default function RunReport({ t, report, running, rawOutput, run, environm
       else next.add(index);
       return next;
     });
-  const passedPct = report.total ? (report.passed / report.total) * 100 : 0;
-  const headline = allPassed
-    ? t.allPassed
-    : t.someFailed.replace('{failed}', report.failed).replace('{total}', report.total);
+  const share = (count) => (report.total ? (count / report.total) * 100 : 0);
+  const passedPct = share(report.passed);
+  const failedPct = share(report.failed);
+  const errorPct = share(report.errors);
+  const fill = (text) =>
+    text
+      .replace('{failed}', report.failed)
+      .replace('{errors}', report.errors)
+      .replace('{total}', report.total);
+  let headline = t.allPassed;
+  if (!allPassed) {
+    if (report.errors === 0) headline = fill(t.someFailed);
+    else if (report.failed === 0) headline = fill(t.someErrors);
+    else headline = fill(t.failedAndErrors);
+  }
 
   return (
     <div className="page">
-      <div className={`run-banner ${allPassed ? 'pass' : 'fail'}`}>
-        <StatusIcon passed={allPassed} />
+      <div className={`run-banner ${bannerTone}`}>
+        <StatusIcon outcome={allPassed ? 'passed' : report.failed === 0 ? 'error' : 'failed'} />
         <div className="run-banner-main">
           <h2>{headline}</h2>
           <p>
@@ -202,7 +229,8 @@ export default function RunReport({ t, report, running, rawOutput, run, environm
           </p>
           <div className="progress-bar" aria-hidden="true">
             <span className="ok" style={{ width: `${passedPct}%` }} />
-            <span className="bad" style={{ width: `${100 - passedPct}%` }} />
+            <span className="bad" style={{ width: `${failedPct}%` }} />
+            <span className="warn" style={{ width: `${errorPct}%` }} />
           </div>
         </div>
         <button type="button" className="btn btn-secondary" onClick={run}>
@@ -223,6 +251,12 @@ export default function RunReport({ t, report, running, rawOutput, run, environm
           <span className="stat-num">{report.failed}</span>
           <span className="stat-label">{t.failed}</span>
         </div>
+        {report.errors > 0 && (
+          <div className="stat warn" title={t.errorsHint}>
+            <span className="stat-num">{report.errors}</span>
+            <span className="stat-label">{t.couldNotEvaluatePlural}</span>
+          </div>
+        )}
         <div className="stat">
           <span className="stat-num">{report.rate}%</span>
           <span className="stat-label">{t.success}</span>
@@ -235,6 +269,7 @@ export default function RunReport({ t, report, running, rawOutput, run, environm
           {[
             ['all', `${t.filterAll} ${report.total}`],
             ['failed', `${t.failed} ${report.failed}`],
+            ...(report.errors > 0 ? [['error', `${t.errorsShort} ${report.errors}`]] : []),
             ['passed', `${t.passed} ${report.passed}`],
           ].map(([value, label]) => (
             <button

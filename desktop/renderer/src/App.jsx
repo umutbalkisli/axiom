@@ -437,7 +437,7 @@ export default function App() {
   const runStatus = useMemo(() => {
     const map = {};
     (report?.tests || []).forEach((item) => {
-      map[item.fileName] = item.passed ? 'pass' : 'fail';
+      map[item.fileName] = { passed: 'pass', error: 'error' }[item.outcome] || 'fail';
     });
     return map;
   }, [report]);
@@ -527,7 +527,7 @@ export default function App() {
       assertions: test.steps[stepIndex].assertions.filter((_, i) => i !== assertionIndex),
     });
 
-  const failedCount = report?.failed || 0;
+  const failedCount = (report?.failed || 0) + (report?.errors || 0);
   const goToCollection = guarded(() => setView('collection'));
   const backFromBuilder = guarded(() => {
     setCollectionTab(editKind === 'shared' ? 'shared' : 'tests');

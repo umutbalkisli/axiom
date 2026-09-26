@@ -81,6 +81,15 @@ Exit codes for `run`:
 - `2`: one or more tests failed
 - `3`: runtime failure (invalid config, connectivity issue, etc.)
 
+### Failed versus could not be evaluated
+
+Reports tell apart two different things that both stop a test from passing:
+
+- **Failed**: the check ran and the API did not behave as expected (`Expected '==' with value '404', actual '200'`). If the path did not exist at all, the message says so.
+- **Error** (`ERROR` in the text report, `outcome: "Error"` in `--json`): the check or step could not be evaluated, which points at the test or its environment rather than the API: an unknown operator, aggregation or source, an invalid regular expression, an unresolved `{{variable}}`, ordering a list, an unreachable server. Each assertion, step and test has an `outcome` of `Passed`, `Failed` or `Error`; a test with any error counts as an error.
+
+The summary line and the JSON result count both (`failedCount`, `errorCount`), and the desktop app shows errors in amber apart from failures in red. The exit code is `2` when anything did not pass, failed or error.
+
 ## Local host API
 
 Used by the desktop app (via Electron IPC). All collection endpoints take a `folderPath` query parameter.

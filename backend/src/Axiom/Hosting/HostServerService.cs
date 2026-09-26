@@ -300,7 +300,7 @@ internal static class HostServerService
             var result = await runner.RunAsync(folderPath, new RunOptions { LocalSecrets = payload?.LocalSecrets, Environment = payload?.Environment }, cancellationToken);
             return Results.Ok(new
             {
-                exitCode = result.FailedCount == 0 ? 0 : 2,
+                exitCode = result.UnsuccessfulCount == 0 ? 0 : 2,
                 report = ReportFormatterService.Format(result),
                 result,
             });

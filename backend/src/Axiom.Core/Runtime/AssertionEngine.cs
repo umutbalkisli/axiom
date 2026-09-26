@@ -28,6 +28,14 @@ public sealed class AssertionEngine
         foreach (var assertion in step.Assert)
         {
             var source = sourceResolver(assertion.Source);
+            if (source is null && !HandlesMissing(assertion))
+            {
+                // Nothing by that name exists, so the assertion cannot be evaluated (usually a typo in the source).
+                results.Add(Build(assertion, assertion.Expected, null, RunOutcome.Error,
+                    $"Unknown source '{assertion.Source}'. Check the spelling, or that an earlier step saves a result with that name."));
+                continue;
+            }
+
             var actual = ReadValue(assertion, source, out var found);
             results.Add(Evaluate(assertion, actual, context, found));
         }
@@ -56,25 +64,16 @@ public sealed class AssertionEngine
     public AssertionResult Evaluate(AssertionDefinition assertion, object? actualValue, IReadOnlyDictionary<string, object?> context, bool found = true)
     {
         var options = new ComparisonOptions(assertion.Strict, assertion.CaseSensitive, assertion.Tolerance ?? 0, IsMissing: !found);
-        var expected = ResolveExpected(assertion.Expected, context);
         var operatorName = assertion.Operator.Trim();
+        var expected = assertion.Expected;
 
-        AssertionResult Result(object? actual, bool passed, string? error) => new()
-        {
-            Source = assertion.Source,
-            Path = assertion.Path,
-            Aggregate = assertion.Aggregate,
-            Operator = operatorName,
-            // A list given as the expected value (for example for "in") is shown as JSON rather than its type name.
-            Expected = expected is System.Collections.IEnumerable and not string ? JsonSerializer.Serialize(expected) : expected,
-            // A list collected by a wildcard path is shown as JSON rather than its type name.
-            Actual = actual is List<object?> list ? JsonSerializer.Serialize(list) : actual,
-            Passed = passed,
-            Error = error,
-        };
-
+        // A comparison answers yes or no. Anything that throws while getting there (a bad operator, an unresolved
+        // {{variable}}, a pattern that is not a regex, ...) means the assertion could not be evaluated: that is an
+        // error in the test, reported apart from an assertion that ran and failed.
         try
         {
+            expected = ResolveExpected(assertion.Expected, context);
+
             if (!_operators.TryGetValue(operatorName, out var comparison))
             {
                 throw new InvalidOperationException($"Unsupported operator '{operatorName}'");
@@ -82,14 +81,41 @@ public sealed class AssertionEngine
 
             var actual = Aggregate(assertion.Aggregate, actualValue);
             var passed = comparison.Evaluate(actual, expected, options);
+            if (passed)
+            {
+                return Build(assertion, expected, actual, RunOutcome.Passed, null);
+            }
 
-            return Result(actual, passed, passed ? null : $"Expected '{operatorName}' with value '{ValueComparison.Preview(expected)}', actual '{ValueComparison.Preview(actual)}'");
+            var message = $"Expected '{operatorName}' with value '{ValueComparison.Preview(expected)}', actual '{ValueComparison.Preview(actual)}'";
+            if (!found && !comparison.HandlesMissing)
+            {
+                message += $" ('{assertion.Source}{(string.IsNullOrEmpty(assertion.Path) ? string.Empty : "." + assertion.Path)}' was not found)";
+            }
+
+            return Build(assertion, expected, actual, RunOutcome.Failed, message);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            return Result(actualValue, false, ex.Message);
+            return Build(assertion, expected, actualValue, RunOutcome.Error, ex.Message);
         }
     }
+
+    private bool HandlesMissing(AssertionDefinition assertion) =>
+        _operators.TryGetValue(assertion.Operator.Trim(), out var comparison) && comparison.HandlesMissing;
+
+    private static AssertionResult Build(AssertionDefinition assertion, object? expected, object? actual, RunOutcome outcome, string? error) => new()
+    {
+        Source = assertion.Source,
+        Path = assertion.Path,
+        Aggregate = assertion.Aggregate,
+        Operator = assertion.Operator.Trim(),
+        // A list given as the expected value (for example for "in") is shown as JSON rather than its type name.
+        Expected = expected is System.Collections.IEnumerable and not string ? JsonSerializer.Serialize(expected) : expected,
+        // A list collected by a wildcard path is shown as JSON rather than its type name.
+        Actual = actual is List<object?> list ? JsonSerializer.Serialize(list) : actual,
+        Outcome = outcome,
+        Error = error,
+    };
 
     private object? Aggregate(string? name, object? value)
     {

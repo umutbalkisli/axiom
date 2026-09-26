@@ -157,6 +157,9 @@ button {
 .text-success {
   color: var(--success);
 }
+.text-warn {
+  color: var(--attention);
+}
 .text-danger {
   color: var(--danger);
 }
@@ -499,6 +502,9 @@ button {
 }
 .run-dot.pass {
   background: var(--success);
+}
+.run-dot.error {
+  background: var(--attention);
 }
 .run-dot.fail {
   background: var(--danger);

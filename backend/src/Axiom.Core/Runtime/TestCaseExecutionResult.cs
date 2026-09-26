@@ -8,4 +8,8 @@ public sealed class TestCaseExecutionResult
     public DateTimeOffset StartedAt { get; init; }
     public DateTimeOffset CompletedAt { get; init; }
     public bool Passed => Steps.All(s => s.Passed);
+
+    public RunOutcome Outcome =>
+        Steps.Any(s => s.Outcome == RunOutcome.Error) ? RunOutcome.Error
+        : Passed ? RunOutcome.Passed : RunOutcome.Failed;
 }

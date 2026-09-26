@@ -25,20 +25,22 @@ public static class BuiltInAssertionOperators
         new Operator("not_in", (actual, expected, o) => !ValueComparison.IsOneOf(actual, expected, o)),
 
         // presence and type
-        new Operator("exists", (actual, _, _) => actual is not null),
-        new Operator("not_exists", (actual, _, _) => actual is null),
-        new Operator("is_null", (actual, _, o) => !o.IsMissing && ValueComparison.IsNull(actual)),
-        new Operator("is_missing", (_, _, o) => o.IsMissing),
-        new Operator("is_empty", (actual, _, _) => ValueComparison.IsEmpty(actual)),
-        new Operator("is_not_empty", (actual, _, _) => !ValueComparison.IsEmpty(actual)),
+        new Operator("exists", (actual, _, _) => actual is not null, handlesMissing: true),
+        new Operator("not_exists", (actual, _, _) => actual is null, handlesMissing: true),
+        new Operator("is_null", (actual, _, o) => !o.IsMissing && ValueComparison.IsNull(actual), handlesMissing: true),
+        new Operator("is_missing", (_, _, o) => o.IsMissing, handlesMissing: true),
+        new Operator("is_empty", (actual, _, _) => ValueComparison.IsEmpty(actual), handlesMissing: true),
+        new Operator("is_not_empty", (actual, _, _) => !ValueComparison.IsEmpty(actual), handlesMissing: true),
         new Operator("is_type", (actual, expected, o) => ValueComparison.HasType(actual, expected, o)),
     ];
 
-    private sealed class Operator(string name, Func<object?, object?, ComparisonOptions, bool> evaluate, bool searchesRawText = false) : IAssertionOperator
+    private sealed class Operator(string name, Func<object?, object?, ComparisonOptions, bool> evaluate, bool searchesRawText = false, bool handlesMissing = false) : IAssertionOperator
     {
         public string Name { get; } = name;
 
         public bool SearchesRawText { get; } = searchesRawText;
+
+        public bool HandlesMissing { get; } = handlesMissing;
 
         public bool Evaluate(object? actual, object? expected, ComparisonOptions options) => evaluate(actual, expected, options);
     }

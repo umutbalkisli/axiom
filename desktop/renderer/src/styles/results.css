@@ -23,6 +23,10 @@
   border-color: var(--danger-border);
   background: color-mix(in srgb, var(--danger-subtle) 55%, var(--canvas));
 }
+.run-banner.warn {
+  border-color: var(--attention-border);
+  background: color-mix(in srgb, var(--attention-subtle) 55%, var(--canvas));
+}
 .run-banner.running {
   color: var(--accent);
 }
@@ -66,13 +70,16 @@
 .progress-bar .ok {
   background: var(--success);
 }
+.progress-bar .warn {
+  background: var(--attention);
+}
 .progress-bar .bad {
   background: var(--danger);
 }
 
 .stat-row {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
   gap: 12px;
   margin-bottom: 26px;
 }
@@ -97,6 +104,9 @@
 .stat.success .stat-num {
   color: var(--success);
 }
+.stat.warn .stat-num {
+  color: var(--attention);
+}
 .stat.danger .stat-num {
   color: var(--danger);
 }
@@ -112,7 +122,10 @@
   background: var(--canvas);
   overflow: hidden;
 }
-.result-row.fail {
+.result-row.error {
+  border-color: var(--attention-border);
+}
+.result-row.failed {
   border-color: var(--danger-border);
 }
 .result-head {
@@ -162,9 +175,9 @@
   margin: 8px 0 0 24px;
   padding: 8px 10px;
   border-radius: var(--radius);
-  border: 1px solid var(--danger-border);
-  background: var(--danger-subtle);
-  color: var(--danger);
+  border: 1px solid var(--attention-border);
+  background: var(--attention-subtle);
+  color: var(--attention);
   font-family: var(--font-mono);
   font-size: 12px;
   white-space: pre-wrap;
@@ -206,6 +219,23 @@
   gap: 4px 18px;
   margin-top: 2px;
   color: var(--fg);
+}
+.assertion-error {
+  margin-top: 4px;
+  padding: 8px 10px;
+  border-radius: var(--radius);
+  background: var(--attention-subtle);
+  color: var(--attention);
+  font-size: 12.3px;
+}
+.assertion-error strong,
+.error-box strong {
+  display: block;
+  margin-bottom: 1px;
+}
+.muted-note {
+  margin-top: 2px;
+  color: var(--fg-muted);
 }
 .assertion-fail code {
   font-family: var(--font-mono);
