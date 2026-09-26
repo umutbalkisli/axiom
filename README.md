@@ -51,6 +51,7 @@ Everything below is registered through DI in `AddAxiomCore()`; add your own regi
 | --- | --- | --- |
 | A new step `type` | `IStepExecutor` (+ `IStepValidator` for save-time checks) | `TestCaseExecutor` picks it up by `Type` |
 | A new assertion operator | `IAssertionOperator` | Usable as `operator:` in YAML |
+| A new assertion aggregation | `IAssertionAggregation` | Usable as `aggregate:` in YAML and listed in the builder dropdown |
 | A new database provider | `IDbConnectionFactory` | Usable as `provider:` in a connection |
 | A new secret store (vault, cloud KMS, ...) | `ISecretProvider` | Usable as `provider:` in `secrets:` |
 
@@ -223,6 +224,35 @@ Sources:
 - Any context variable name can also be referenced
 
 Use `path` (dot-separated, e.g. `items.0.name`) to pick a value out of a source.
+
+Use `*` in a path to collect a field from every item of a list (or every property of an object): `items.*.price` gives the list of all prices, and `items.*.tags.*` flattens nested lists. Items where the rest of the path finds nothing are skipped.
+
+Add `aggregate` to compare a computed value instead of the value itself:
+
+| `aggregate` | Result |
+| --- | --- |
+| `count` | number of items in a list or rows, or properties in an object |
+| `sum`, `avg`, `min`, `max` | computed over a list of numbers |
+
+```yaml
+- source: body
+  path: items
+  aggregate: count
+  operator: ">="
+  expected: 1
+- source: body
+  path: items.*.price
+  aggregate: sum
+  operator: "<"
+  expected: 500
+- source: rows          # DB step
+  path: "*.amount"
+  aggregate: max
+  operator: "<="
+  expected: 1000
+```
+
+Aggregations fail with a clear message instead of guessing: a missing value or a non-list can't be aggregated, `sum` over non-numbers fails, and `avg`/`min`/`max` of an empty list fail (`sum` of an empty list is 0). Aggregation names are case-insensitive and extensible via `IAssertionAggregation`. In the desktop builder it is the aggregation dropdown after the path field.
 
 Operators:
 

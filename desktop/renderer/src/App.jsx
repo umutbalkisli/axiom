@@ -54,6 +54,7 @@ export default function App() {
     () => localStorage.getItem('axiom-environment') || '',
   );
   const [secretProviders, setSecretProviders] = useState([]);
+  const [aggregations, setAggregations] = useState([]);
   const [localSecretNames, setLocalSecretNames] = useState([]);
   const [tests, setTests] = useState([]);
   const [activeFile, setActiveFile] = useState(null);
@@ -83,6 +84,12 @@ export default function App() {
     }
     return undefined;
   }, [theme]);
+  useEffect(() => {
+    api
+      .getAggregations()
+      .then((names) => setAggregations(names || []))
+      .catch(() => {});
+  }, []);
   useEffect(() => {
     if (!folder || !hasCollection) return;
     Promise.all([
@@ -248,7 +255,7 @@ export default function App() {
     updateStep(index, {
       assertions: [
         ...test.steps[index].assertions,
-        { source: 'status', path: '', operator: '==', expected: '200' },
+        { source: 'status', path: '', aggregate: '', operator: '==', expected: '200' },
       ],
     });
   const updateAssertion = (stepIndex, assertionIndex, patch) =>
@@ -348,6 +355,7 @@ export default function App() {
               addAssertion={addAssertion}
               updateAssertion={updateAssertion}
               removeAssertion={removeAssertion}
+              aggregations={aggregations}
             />
           )}
           {view === 'run' && (

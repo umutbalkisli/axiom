@@ -58,6 +58,8 @@ internal static class HostServerService
             Results.Ok(new { tests = manager.ListTests(folderPath) }));
 
         app.MapGet("/api/tests/{fileName}", GetTest);
+        app.MapGet("/api/assertions/aggregations", (IEnumerable<IAssertionAggregation> aggregations) =>
+            Results.Ok(new { aggregations = aggregations.Select(a => a.Name) }));
         app.MapPost("/api/tests", SaveTestAsync);
         app.MapDelete("/api/tests/{fileName}", DeleteTest);
     }

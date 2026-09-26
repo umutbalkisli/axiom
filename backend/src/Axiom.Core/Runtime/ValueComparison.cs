@@ -1,3 +1,6 @@
+using System.Globalization;
+using System.Text.Json;
+
 namespace Axiom.Runtime;
 
 /// <summary>Loose comparison rules shared by assertion operators: numbers compare numerically, everything else as case-insensitive text.</summary>
@@ -26,7 +29,7 @@ internal static class ValueComparison
     public static bool ContainsText(object? actual, object? expected) =>
         actual?.ToString()?.Contains(expected?.ToString() ?? string.Empty, StringComparison.OrdinalIgnoreCase) == true;
 
-    private static bool TryToDecimal(object? value, out decimal result)
+    internal static bool TryToDecimal(object? value, out decimal result)
     {
         switch (value)
         {
@@ -48,8 +51,10 @@ internal static class ValueComparison
             case float f:
                 result = (decimal)f;
                 return true;
+            case JsonElement { ValueKind: JsonValueKind.Number } number:
+                return number.TryGetDecimal(out result);
             default:
-                return decimal.TryParse(value.ToString(), out result);
+                return decimal.TryParse(value.ToString(), NumberStyles.Float, CultureInfo.InvariantCulture, out result);
         }
     }
 }

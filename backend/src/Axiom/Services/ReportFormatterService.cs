@@ -65,7 +65,7 @@ internal static class ReportFormatterService
     private static void AddAssertionLines(List<string> lines, AssertionResult assertion)
     {
         var status = assertion.Passed ? "PASS" : "FAIL";
-        lines.Add($"      [{status}] Assertion: source={assertion.Source}, op={assertion.Operator}, expected={assertion.Expected}, actual={assertion.Actual}");
+        lines.Add($"      [{status}] Assertion: source={assertion.Source}{(string.IsNullOrEmpty(assertion.Path) ? string.Empty : "." + assertion.Path)}{(string.IsNullOrEmpty(assertion.Aggregate) ? string.Empty : $" ({assertion.Aggregate})")}, op={assertion.Operator}, expected={assertion.Expected}, actual={assertion.Actual}");
 
         if (!assertion.Passed && !string.IsNullOrWhiteSpace(assertion.Error))
         {

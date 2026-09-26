@@ -66,6 +66,7 @@ function StepCard({
   addAssertion,
   updateAssertion,
   removeAssertion,
+  aggregations,
 }) {
   const patch = (key, value) => updateStep(index, { [key]: value });
   return (
@@ -78,7 +79,10 @@ function StepCard({
           {step.type === 'request' ? (
             <MethodBadge method={step.method} />
           ) : (
-            <span className="method-badge" style={{ color: 'var(--fg-muted)', background: 'var(--canvas-inset)' }}>
+            <span
+              className="method-badge"
+              style={{ color: 'var(--fg-muted)', background: 'var(--canvas-inset)' }}
+            >
               SQL
             </span>
           )}
@@ -183,7 +187,7 @@ function StepCard({
               className="row g-2 mb-2 align-items-center"
               key={`${step.id}-assertion-${assertionIndex}`}
             >
-              <div className="col-md-3">
+              <div className="col-md-2">
                 <input
                   className="form-control font-monospace"
                   value={assertion.source}
@@ -204,6 +208,24 @@ function StepCard({
               <div className="col-md-2">
                 <select
                   className="form-select"
+                  aria-label={t.aggregation}
+                  title={t.aggregationHint}
+                  value={assertion.aggregate || ''}
+                  onChange={(e) =>
+                    updateAssertion(index, assertionIndex, { aggregate: e.target.value })
+                  }
+                >
+                  <option value="">{t.aggregationNone}</option>
+                  {aggregations.map((name) => (
+                    <option key={name} value={name}>
+                      {name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="col-md-2">
+                <select
+                  className="form-select"
                   value={assertion.operator}
                   onChange={(e) =>
                     updateAssertion(index, assertionIndex, { operator: e.target.value })
@@ -219,7 +241,7 @@ function StepCard({
                   <option>exists</option>
                 </select>
               </div>
-              <div className="col-md-3">
+              <div className="col-md-2">
                 <VariableInput
                   value={assertion.expected}
                   placeholder="expected"
@@ -266,6 +288,7 @@ export default function Builder({
   addAssertion,
   updateAssertion,
   removeAssertion,
+  aggregations,
 }) {
   return (
     <section>
@@ -342,6 +365,7 @@ export default function Builder({
                 addAssertion={addAssertion}
                 updateAssertion={updateAssertion}
                 removeAssertion={removeAssertion}
+                aggregations={aggregations}
               />
             ))
           ) : (

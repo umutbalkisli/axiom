@@ -68,6 +68,10 @@ export const translations = {
     url: 'URL',
     sql: 'SQL query',
     addAssertion: '+ Add assertion',
+    aggregation: 'Aggregation',
+    aggregationNone: 'no aggregation',
+    aggregationHint:
+      'Compare a computed value instead of the value itself: count of items, or sum / avg / min / max of a list of numbers. Use * in the path to collect a field from every item, e.g. items.*.price',
     remove: 'Remove',
     yaml: 'Generated YAML',
     runSummary: 'Run Summary',
@@ -186,6 +190,10 @@ export const translations = {
     url: 'Adres',
     sql: 'SQL sorgusu',
     addAssertion: '+ Doğrulama ekle',
+    aggregation: 'Toplulaştırma',
+    aggregationNone: 'toplulaştırma yok',
+    aggregationHint:
+      'Değerin kendisi yerine hesaplanan bir değeri karşılaştırır: öğe sayısı veya sayı listesinin toplamı / ortalaması / en küçüğü / en büyüğü. Her öğeden bir alan toplamak için yolda * kullanın, örn. items.*.price',
     remove: 'Sil',
     yaml: 'Oluşturulan YAML',
     runSummary: 'Çalıştırma Özeti',
@@ -271,6 +279,7 @@ export function normalizeSteps(items) {
     assertions: (step.assert || []).map((a) => ({
       source: a.source || '',
       path: a.path || '',
+      aggregate: a.aggregate || '',
       operator: a.operator || '==',
       expected: String(a.expected ?? ''),
     })),
@@ -295,6 +304,7 @@ export function toYamlSteps(steps) {
     assert: step.assertions.map((a) => ({
       source: a.source,
       path: a.path || undefined,
+      aggregate: a.aggregate || undefined,
       operator: a.operator,
       expected: String(a.expected ?? ''),
     })),

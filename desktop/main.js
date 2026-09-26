@@ -137,6 +137,11 @@ ipcMain.handle('save-collection-settings', async (_, payload) => {
   );
 });
 
+ipcMain.handle('get-aggregations', async () => {
+  const data = await hostRequest('GET', '/api/assertions/aggregations');
+  return data?.aggregations || [];
+});
+
 ipcMain.handle('get-secret-providers', async () => {
   const data = await hostRequest('GET', '/api/secrets/providers');
   return data?.providers || [];

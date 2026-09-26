@@ -87,6 +87,8 @@ public sealed partial class RunSecrets
     private AssertionResult Mask(AssertionResult assertion) => new()
     {
         Source = assertion.Source,
+        Path = assertion.Path,
+        Aggregate = assertion.Aggregate,
         Operator = assertion.Operator,
         Expected = MaskValue(assertion.Expected),
         Actual = MaskValue(assertion.Actual),

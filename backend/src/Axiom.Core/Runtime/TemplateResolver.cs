@@ -60,17 +60,76 @@ public static partial class TemplateResolver
         }
 
         var segments = path.Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        var current = source;
-        foreach (var segment in segments)
+        return UnwrapJson(ResolveSegments(source, segments, 0));
+    }
+
+    /// <summary>
+    /// Walks the path. A <c>*</c> segment fans out over every element of a list (or property of an object) and
+    /// collects what the rest of the path finds in each; elements where it finds nothing are skipped.
+    /// </summary>
+    private static object? ResolveSegments(object? current, string[] segments, int start)
+    {
+        for (var i = start; i < segments.Length; i++)
         {
-            current = ResolveSegment(current, segment);
-            if (current is null)
+            if (segments[i] != "*")
+            {
+                current = ResolveSegment(current, segments[i]);
+                if (current is null)
+                {
+                    return null;
+                }
+
+                continue;
+            }
+
+            if (current is null || !TryEnumerateChildren(current, out var children))
             {
                 return null;
             }
+
+            var restHasWildcard = Array.IndexOf(segments, "*", i + 1) >= 0;
+            var results = new List<object?>();
+            foreach (var child in children)
+            {
+                var value = UnwrapJson(ResolveSegments(child, segments, i + 1));
+                if (restHasWildcard && value is List<object?> nested)
+                {
+                    results.AddRange(nested);
+                }
+                else if (value is not null)
+                {
+                    results.Add(value);
+                }
+            }
+
+            return results;
         }
 
-        return UnwrapJson(current);
+        return current;
+    }
+
+    private static bool TryEnumerateChildren(object value, out IEnumerable<object?> children)
+    {
+        switch (value)
+        {
+            case JsonArray array:
+                children = array;
+                return true;
+            case JsonObject obj:
+                children = obj.Select(pair => (object?)pair.Value);
+                return true;
+            case IDictionary<string, object?> dictionary:
+                children = dictionary.Values;
+                return true;
+            case string:
+                break;
+            case System.Collections.IEnumerable sequence:
+                children = sequence.Cast<object?>();
+                return true;
+        }
+
+        children = [];
+        return false;
     }
 
     private static object? ResolveSegment(object? current, string segment)
@@ -159,7 +218,7 @@ public static partial class TemplateResolver
         return true;
     }
 
-    private static object? UnwrapJson(object? value)
+    internal static object? UnwrapJson(object? value)
     {
         return value switch
         {

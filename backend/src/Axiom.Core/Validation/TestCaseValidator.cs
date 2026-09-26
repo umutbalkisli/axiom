@@ -1,14 +1,17 @@
 using Axiom.Documents;
+using Axiom.Runtime;
 
 namespace Axiom.Validation;
 
 public sealed class TestCaseValidator
 {
     private readonly Dictionary<string, IStepValidator> _stepValidators;
+    private readonly HashSet<string> _aggregations;
 
-    public TestCaseValidator(IEnumerable<IStepValidator> stepValidators)
+    public TestCaseValidator(IEnumerable<IStepValidator> stepValidators, IEnumerable<IAssertionAggregation> aggregations)
     {
         _stepValidators = stepValidators.ToDictionary(v => v.StepType, StringComparer.OrdinalIgnoreCase);
+        _aggregations = aggregations.Select(a => a.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
     }
 
     public List<FieldError> Validate(SaveTestCaseRequest request)
@@ -62,7 +65,7 @@ public sealed class TestCaseValidator
         }
     }
 
-    private static void ValidateAssertion(AssertionDocument assertion, string stepPrefix, int assertionIndex, List<FieldError> errors)
+    private void ValidateAssertion(AssertionDocument assertion, string stepPrefix, int assertionIndex, List<FieldError> errors)
     {
         var assertionPrefix = $"{stepPrefix}.assert[{assertionIndex}]";
 
@@ -74,6 +77,11 @@ public sealed class TestCaseValidator
         if (string.IsNullOrWhiteSpace(assertion.Operator))
         {
             errors.Add(new FieldError($"{assertionPrefix}.operator", "Assertion operator is required."));
+        }
+
+        if (!string.IsNullOrWhiteSpace(assertion.Aggregate) && !_aggregations.Contains(assertion.Aggregate.Trim()))
+        {
+            errors.Add(new FieldError($"{assertionPrefix}.aggregate", $"Aggregation must be one of: {string.Join(", ", _aggregations)}."));
         }
     }
 }

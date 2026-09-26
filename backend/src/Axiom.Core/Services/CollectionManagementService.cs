@@ -223,6 +223,7 @@ public sealed class CollectionManagementService
             {
                 Source = assertion.Source,
                 Path = assertion.Path,
+                Aggregate = string.IsNullOrWhiteSpace(assertion.Aggregate) ? null : assertion.Aggregate.Trim().ToLowerInvariant(),
                 Operator = assertion.Operator,
                 Expected = NormalizeValue(assertion.Expected),
             }).ToList() ?? [],

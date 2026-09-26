@@ -12,7 +12,7 @@ public static class AxiomServiceCollectionExtensions
 {
     /// <summary>
     /// Registers the Axiom engine. Extend it by registering more <see cref="IStepExecutor"/>,
-    /// <see cref="IStepValidator"/>, <see cref="IAssertionOperator"/>, <see cref="IDbConnectionFactory"/> or <see cref="ISecretProvider"/> services.
+    /// <see cref="IStepValidator"/>, <see cref="IAssertionOperator"/>, <see cref="IAssertionAggregation"/>, <see cref="IDbConnectionFactory"/> or <see cref="ISecretProvider"/> services.
     /// </summary>
     public static IServiceCollection AddAxiomCore(this IServiceCollection services)
     {
@@ -25,6 +25,11 @@ public static class AxiomServiceCollectionExtensions
         foreach (var assertionOperator in BuiltInAssertionOperators.All)
         {
             services.AddSingleton(assertionOperator);
+        }
+
+        foreach (var aggregation in BuiltInAssertionAggregations.All)
+        {
+            services.AddSingleton(aggregation);
         }
 
         services.TryAddSingleton<AssertionEngine>();
