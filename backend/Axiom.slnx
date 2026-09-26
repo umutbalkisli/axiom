@@ -3,4 +3,7 @@
     <Project Path="src/Axiom.Core/Axiom.Core.csproj" />
     <Project Path="src/Axiom/Axiom.csproj" />
   </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Axiom.Tests/Axiom.Tests.csproj" />
+  </Folder>
 </Solution>

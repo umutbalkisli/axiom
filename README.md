@@ -26,6 +26,7 @@ Axiom is an API test platform and it's designed to write tests without using a p
 ```
 backend/
   Axiom.slnx
+  tests/Axiom.Tests/  xUnit tests for the engine and the host
   src/Axiom.Core/     engine library (no ASP.NET dependency)
     Models/           YAML contracts (collection, test case, step, assertion, ...)
     Documents/        DTOs exchanged with the desktop app
@@ -55,6 +56,14 @@ Everything below is registered through DI in `AddAxiomCore()`; add your own regi
 | A new assertion aggregation | `IAssertionAggregation` | Usable as `aggregate:` in YAML and listed in the builder dropdown |
 | A new database provider | `IDbConnectionFactory` | Usable as `provider:` in a connection |
 | A new secret store (vault, cloud KMS, ...) | `ISecretProvider` | Usable as `provider:` in `secrets:` |
+
+## Tests
+
+```bash
+dotnet test backend/tests/Axiom.Tests
+```
+
+The xUnit suite (about 245 tests, a few seconds) covers the assertion engine (every operator, option, aggregation and outcome), template and path resolution, secrets and their providers (Vault and Kubernetes against a local fake server), the YAML loader, file naming, validation, the collection management service, shared steps (including run-once sharing across parallel tests and cycle detection), the request and database step executors, and whole-collection runs through the real dependency injection setup with a stubbed HTTP handler. No test needs network access. The public API of `Axiom.Core` is documented with XML comments.
 
 ## Requirements
 
