@@ -38,3 +38,16 @@ public sealed class DbQueryStepValidator : IStepValidator
         }
     }
 }
+
+public sealed class IncludeStepValidator : IStepValidator
+{
+    public string StepType => IncludeStepExecutor.StepType;
+
+    public IEnumerable<FieldError> Validate(StepDocument step, string fieldPrefix)
+    {
+        if (string.IsNullOrWhiteSpace(step.Ref))
+        {
+            yield return new FieldError($"{fieldPrefix}.ref", "Choose the shared steps to include.");
+        }
+    }
+}

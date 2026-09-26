@@ -50,7 +50,7 @@ Everything below is registered through DI in `AddAxiomCore()`; add your own regi
 
 | To add... | Implement | Notes |
 | --- | --- | --- |
-| A new step `type` | `IStepExecutor` (+ `IStepValidator` for save-time checks) | `TestCaseExecutor` picks it up by `Type` |
+| A new step `type` | `IStepExecutor` (+ `IStepValidator` for save-time checks) | `StepRunner` picks it up by `Type` |
 | A new assertion operator | `IAssertionOperator` | Usable as `operator:` in YAML |
 | A new assertion aggregation | `IAssertionAggregation` | Usable as `aggregate:` in YAML and listed in the builder dropdown |
 | A new database provider | `IDbConnectionFactory` | Usable as `provider:` in a connection |
@@ -106,6 +106,7 @@ Used by the desktop app (via Electron IPC). All collection endpoints take a `fol
 ```
 my-collection/
   collection.yaml
+  shared/            reusable step groups (optional)
   tests/
     get-one-todo.test.yaml
     ...
@@ -119,6 +120,44 @@ The test's real name lives inside the file (`name:`); the file name is only a sh
 - Names never collide: if the file exists, a suffix is added (`get-one-todo-2`). Saving a new test can no longer overwrite another one.
 - Renaming a test renames its file to match, as long as the file still has the name Axiom generated. If you renamed the file yourself, Axiom leaves it alone.
 - Re-importing an OpenAPI document skips operations that were already imported, so edited tests are not overwritten.
+
+## Shared steps
+
+Steps that many tests need first (get an auth token, read an id from the database) can be written once and reused. A shared group is a file in `shared/`:
+
+```yaml
+# shared/get-auth-token.shared.yaml
+name: Get auth token
+run: once            # once per run, or `each` (default): inside every test that uses it
+steps:
+  - id: login
+    type: request
+    method: POST
+    url: "{{base_url}}/token"
+    body: '{ "user": "{{secret.user}}", "password": "{{secret.password}}" }'
+    save_as: token_resp
+```
+
+A test uses it with an `include` step; variables the group saves are then available to the steps after it:
+
+```yaml
+steps:
+  - id: auth
+    type: include
+    ref: get-auth-token        # the shared file name without `.shared.yaml`
+  - id: get_orders
+    type: request
+    method: GET
+    url: "{{base_url}}/orders"
+    headers:
+      Authorization: "Bearer {{token_resp.token}}"
+```
+
+- `run: once` executes the group a single time per run, even when many tests run in parallel; every including test gets its variables and results. It starts from the collection variables and secrets only, so it cannot depend on one test's own variables. If it fails, every test that includes it fails with the same error.
+- `run: each` runs the steps again inside each test, with that test's variables.
+- Groups can include other groups. A cycle, or a `ref` that does not exist, is reported instead of hanging.
+- A group's file name stays fixed once created, because tests refer to it. A group that is still included cannot be deleted.
+- In the desktop app: **Collection → Shared steps** to create groups, then **Use shared steps** in the test builder. Results show the shared steps nested under the include step.
 
 ## YAML format (v0)
 
@@ -176,7 +215,7 @@ steps:
         operator: exists
 ```
 
-Step types: `request` (`method`, `url`, `query_params`, `headers`, `body`) and `db_query` (`connection`, `sql`, `save_as`).
+Step types: `request` (`method`, `url`, `query_params`, `headers`, `body`), `db_query` (`connection`, `sql`, `save_as`) and `include` (`ref`, see Shared steps).
 
 Variable names (collection and test `variables`, and `save_as`) may contain only letters and underscores (`base_url`, `todo_id`); `secret` is reserved. A collection that breaks this rule fails to load with the offending file and name, and the desktop app rejects such names when saving.
 

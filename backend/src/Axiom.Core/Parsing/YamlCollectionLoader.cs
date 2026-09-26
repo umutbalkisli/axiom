@@ -21,36 +21,81 @@ public sealed class YamlCollectionLoader
         NormalizeCollection(collection, root);
         EnsureValidVariableNames(collection.Variables.Keys, collectionPath);
 
-        var testsPath = CollectionPaths.TestsDirectory(root);
-        if (!Directory.Exists(testsPath))
-        {
-            return new LoadedCollection
-            {
-                Collection = collection,
-                TestCases = [],
-                RootPath = root,
-            };
-        }
-
-        var tests = Directory.EnumerateFiles(testsPath, CollectionPaths.TestFilePattern, SearchOption.AllDirectories)
-                             .OrderBy(x => x, StringComparer.OrdinalIgnoreCase)
-                             .Select(path =>
-                             {
-                                var test = DeserializeFile<TestCaseDefinition>(path);
-                                NormalizeTest(test, path);
-                                EnsureValidVariableNames(
-                                    test.Variables.Keys.Concat(test.Steps.Select(s => s.SaveAs).OfType<string>().Where(n => n.Length > 0)),
-                                    path);
-                                return test;
-                             })
-                             .ToList();
+        var shared = LoadShared(root);
+        var tests = LoadTests(root);
+        EnsureIncludesExist(tests, shared);
 
         return new LoadedCollection
         {
             Collection = collection,
             TestCases = tests,
+            SharedSteps = shared,
             RootPath = root,
         };
+    }
+
+    private List<TestCaseDefinition> LoadTests(string root)
+    {
+        var testsPath = CollectionPaths.TestsDirectory(root);
+        if (!Directory.Exists(testsPath))
+        {
+            return [];
+        }
+
+        return Directory.EnumerateFiles(testsPath, CollectionPaths.TestFilePattern, SearchOption.AllDirectories)
+                        .OrderBy(x => x, StringComparer.OrdinalIgnoreCase)
+                        .Select(path =>
+                        {
+                            var test = DeserializeFile<TestCaseDefinition>(path);
+                            NormalizeTest(test, path);
+                            EnsureValidVariableNames(
+                                test.Variables.Keys.Concat(SavedNames(test.Steps)),
+                                path);
+                            return test;
+                        })
+                        .ToList();
+    }
+
+    private Dictionary<string, SharedStepsDefinition> LoadShared(string root)
+    {
+        var shared = new Dictionary<string, SharedStepsDefinition>(StringComparer.OrdinalIgnoreCase);
+        var sharedPath = CollectionPaths.Directory(root, CollectionPaths.Shared);
+        if (!Directory.Exists(sharedPath))
+        {
+            return shared;
+        }
+
+        foreach (var path in Directory.EnumerateFiles(sharedPath, CollectionPaths.Shared.Pattern, SearchOption.TopDirectoryOnly)
+                                      .OrderBy(x => x, StringComparer.OrdinalIgnoreCase))
+        {
+            var definition = DeserializeFile<SharedStepsDefinition>(path);
+            definition.Steps ??= [];
+            definition.SourceFile = path;
+            NormalizeSteps(definition.Steps);
+            EnsureValidVariableNames(SavedNames(definition.Steps), path);
+            shared[CollectionPaths.ToId(CollectionPaths.Shared, Path.GetFileName(path))] = definition;
+        }
+
+        return shared;
+    }
+
+    private static IEnumerable<string> SavedNames(IEnumerable<StepDefinition> steps) =>
+        steps.Select(s => s.SaveAs).OfType<string>().Where(n => n.Length > 0);
+
+    private static void EnsureIncludesExist(IEnumerable<TestCaseDefinition> tests, IReadOnlyDictionary<string, SharedStepsDefinition> shared)
+    {
+        var owners = tests.Select(t => (File: t.SourceFile, Steps: t.Steps))
+            .Concat(shared.Values.Select(d => (File: d.SourceFile, Steps: d.Steps)));
+        foreach (var (file, steps) in owners)
+        {
+            foreach (var include in steps.Where(s => string.Equals(s.Type, "include", StringComparison.OrdinalIgnoreCase)))
+            {
+                if (string.IsNullOrWhiteSpace(include.Ref) || !shared.ContainsKey(include.Ref.Trim()))
+                {
+                    throw new InvalidOperationException($"{file}: include step '{include.Id}' refers to shared steps '{include.Ref}', which do not exist.");
+                }
+            }
+        }
     }
 
     private static void EnsureValidVariableNames(IEnumerable<string> names, string filePath)
@@ -126,8 +171,12 @@ public sealed class YamlCollectionLoader
         test.Variables ??= new(StringComparer.OrdinalIgnoreCase);
         test.Steps ??= [];
         test.SourceFile = sourcePath;
+        NormalizeSteps(test.Steps);
+    }
 
-        foreach (var step in test.Steps)
+    private static void NormalizeSteps(List<StepDefinition> steps)
+    {
+        foreach (var step in steps)
         {
             step.Headers ??= new(StringComparer.OrdinalIgnoreCase);
             step.QueryParams ??= new(StringComparer.OrdinalIgnoreCase);

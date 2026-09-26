@@ -1261,6 +1261,11 @@ pre {
   color: var(--danger);
   background: var(--danger-subtle);
 }
+.method-shared {
+  color: var(--accent-emphasis);
+  background: var(--accent-subtle);
+  letter-spacing: 0.04em;
+}
 .method-sql {
   color: var(--fg-muted);
   background: var(--canvas-inset);

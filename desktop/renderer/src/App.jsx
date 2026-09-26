@@ -39,6 +39,22 @@ const newStep = (type, index) => ({
     },
   ],
 });
+const newIncludeStep = (index) => ({
+  id: `include_${index}`,
+  type: 'include',
+  name: '',
+  method: 'GET',
+  url: '',
+  queryParams: [],
+  headers: [],
+  body: '',
+  connection: '',
+  sql: '',
+  save_as: '',
+  ref: '',
+  assertions: [],
+});
+const emptyShared = () => ({ name: '', description: '', run: 'each', variables: {}, steps: [] });
 const emptyTest = () => ({
   name: '',
   description: '',
@@ -77,6 +93,8 @@ export default function App() {
   const [tests, setTests] = useState([]);
   const [activeFile, setActiveFile] = useState(null);
   const [builderKey, setBuilderKey] = useState(0);
+  const [editKind, setEditKind] = useState('test');
+  const [shared, setShared] = useState([]);
   const [test, setTest] = useState(emptyTest);
   const [savedTest, setSavedTest] = useState(JSON.stringify(emptyTest()));
   const [report, setReport] = useState(null);
@@ -130,9 +148,10 @@ export default function App() {
   }, []);
 
   const loadCollection = useCallback(async (folderPath) => {
-    const [data, list, localNames, providers] = await Promise.all([
+    const [data, list, sharedList, localNames, providers] = await Promise.all([
       api.getCollection({ folderPath }),
       api.listTests({ folderPath }),
+      api.listShared({ folderPath }),
       api.listLocalSecrets({ folderPath }),
       api.getSecretProviders(),
     ]);
@@ -141,6 +160,7 @@ export default function App() {
     setSavedCollection(JSON.stringify(state));
     setCollectionName(data?.name || '');
     setTests(list.tests || []);
+    setShared(sharedList || []);
     setLocalSecretNames(localNames || []);
     setSecretProviders(providers || []);
   }, []);
@@ -238,6 +258,35 @@ export default function App() {
     setTests(list.tests || []);
   };
 
+  const refreshShared = async () => setShared(await api.listShared({ folderPath: folder }));
+
+  const openShared = async (fileName) => {
+    const data = await api.getShared({ folderPath: folder, fileName });
+    if (!data) return;
+    const loaded = {
+      name: data.name || '',
+      description: data.description || '',
+      run: data.run || 'each',
+      variables: {},
+      steps: normalizeSteps(data.steps || []),
+    };
+    setEditKind('shared');
+    setActiveFile(fileName);
+    setBuilderKey((key) => key + 1);
+    setTest(loaded);
+    setSavedTest(JSON.stringify(loaded));
+    setView('builder');
+  };
+  const newShared = () => {
+    const fresh = emptyShared();
+    setEditKind('shared');
+    setActiveFile(null);
+    setBuilderKey((key) => key + 1);
+    setTest(fresh);
+    setSavedTest(JSON.stringify(fresh));
+    setView('builder');
+  };
+
   const openTest = async (fileName) => {
     const data = await api.getTestCase({ folderPath: folder, fileName });
     if (!data) return;
@@ -249,6 +298,7 @@ export default function App() {
       variables: data.variables || {},
       steps: normalizeSteps(data.steps || []),
     };
+    setEditKind('test');
     setActiveFile(fileName);
     setBuilderKey((key) => key + 1);
     setTest(loaded);
@@ -257,13 +307,34 @@ export default function App() {
   };
   const newTest = () => {
     const fresh = emptyTest();
+    setEditKind('test');
     setActiveFile(null);
     setBuilderKey((key) => key + 1);
     setTest(fresh);
     setSavedTest(JSON.stringify(fresh));
     setView('builder');
   };
+  const saveShared = async () => {
+    if (!test.name.trim()) return;
+    try {
+      const result = await api.saveShared({
+        folderPath: folder,
+        fileName: activeFile,
+        name: test.name,
+        description: test.description,
+        run: test.run,
+        steps: toYamlSteps(test.steps),
+      });
+      setActiveFile(result.fileName);
+      setSavedTest(JSON.stringify(test));
+      notify(t.saved);
+      await refreshShared();
+    } catch (error) {
+      window.alert(error.message || t.failedSave);
+    }
+  };
   const saveTest = async () => {
+    if (editKind === 'shared') return saveShared();
     if (!test.name.trim() || !test.endpoint.trim()) return;
     try {
       const result = await api.saveTestCase({
@@ -285,7 +356,25 @@ export default function App() {
       window.alert(error.message || t.failedSave);
     }
   };
+  const deleteShared = async () => {
+    if (!activeFile || !window.confirm(`${t.deleteConfirm} ${activeFile}?`)) return;
+    try {
+      await api.deleteShared({ folderPath: folder, fileName: activeFile });
+    } catch (error) {
+      window.alert(error.message);
+      return;
+    }
+    setActiveFile(null);
+    setTest(emptyTest());
+    setSavedTest(JSON.stringify(emptyTest()));
+    setEditKind('test');
+    setCollectionTab('shared');
+    setView('collection');
+    notify(t.deleted);
+    await refreshShared();
+  };
   const deleteTest = async () => {
+    if (editKind === 'shared') return deleteShared();
     if (!activeFile || !window.confirm(`${t.deleteConfirm} ${activeFile}?`)) return;
     await api.deleteTestCase({ folderPath: folder, fileName: activeFile });
     setActiveFile(null);
@@ -370,7 +459,12 @@ export default function App() {
   const addStep = (type) =>
     setTest((current) => ({
       ...current,
-      steps: [...current.steps, newStep(type, current.steps.length + 1)],
+      steps: [
+        ...current.steps,
+        type === 'include'
+          ? newIncludeStep(current.steps.length + 1)
+          : newStep(type, current.steps.length + 1),
+      ],
     }));
   const removeStep = (index) =>
     setTest((current) => ({ ...current, steps: current.steps.filter((_, i) => i !== index) }));
@@ -402,6 +496,10 @@ export default function App() {
 
   const failedCount = report?.failed || 0;
   const goToCollection = guarded(() => setView('collection'));
+  const backFromBuilder = guarded(() => {
+    setCollectionTab(editKind === 'shared' ? 'shared' : 'tests');
+    setView('collection');
+  });
   const showWelcome = view !== 'setup' && !hasCollection;
 
   return (
@@ -418,7 +516,7 @@ export default function App() {
         tests={tests}
         runStatus={runStatus}
         failedCount={failedCount}
-        activeFile={activeFile}
+        activeFile={editKind === 'test' ? activeFile : null}
         view={view}
         openFolder={guarded(openFolder)}
         openCollectionSetup={guarded(() => openSetup('empty'))}
@@ -506,6 +604,9 @@ export default function App() {
               runStatus={runStatus}
               openTest={openTest}
               newTest={newTest}
+              shared={shared}
+              openShared={openShared}
+              newShared={newShared}
               openImport={() => openSetup('import')}
               secretProviders={secretProviders}
               localSecretNames={localSecretNames}
@@ -525,7 +626,9 @@ export default function App() {
               isNew={!activeFile}
               saveTest={saveTest}
               deleteTest={deleteTest}
-              back={goToCollection}
+              back={backFromBuilder}
+              kind={editKind}
+              sharedList={shared}
               addStep={addStep}
               removeStep={removeStep}
               moveStep={moveStep}

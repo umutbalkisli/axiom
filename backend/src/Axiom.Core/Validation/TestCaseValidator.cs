@@ -1,4 +1,5 @@
 using Axiom.Documents;
+using Axiom.Models;
 using Axiom.Runtime;
 
 namespace Axiom.Validation;
@@ -30,18 +31,57 @@ public sealed class TestCaseValidator
 
         errors.AddRange(CollectionSettingsValidator.ValidateVariables(request.Variables));
 
-        if (request.Steps.Count == 0)
+        ValidateSteps(request.Steps, errors);
+        return errors;
+    }
+
+    public List<FieldError> Validate(SaveSharedStepsRequest request)
+    {
+        var errors = new List<FieldError>();
+
+        if (string.IsNullOrWhiteSpace(request.Name))
+        {
+            errors.Add(new FieldError("name", "Name is required."));
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.Run)
+            && !new[] { SharedStepsDefinition.RunOnce, SharedStepsDefinition.RunEach }.Contains(request.Run.Trim(), StringComparer.OrdinalIgnoreCase))
+        {
+            errors.Add(new FieldError("run", "Run must be 'once' or 'each'."));
+        }
+
+        ValidateSteps(request.Steps, errors);
+        return errors;
+    }
+
+    /// <summary>Include steps must point at existing shared groups.</summary>
+    public static IEnumerable<FieldError> ValidateIncludes(IReadOnlyList<StepDocument> steps, IReadOnlySet<string> sharedIds)
+    {
+        for (var index = 0; index < steps.Count; index++)
+        {
+            var step = steps[index];
+            var reference = step.Ref?.Trim();
+            if (string.Equals(step.Type, IncludeStepExecutor.StepType, StringComparison.OrdinalIgnoreCase)
+                && !string.IsNullOrEmpty(reference)
+                && !sharedIds.Contains(reference))
+            {
+                yield return new FieldError($"steps[{index}].ref", $"Shared steps '{reference}' do not exist.");
+            }
+        }
+    }
+
+    private void ValidateSteps(List<StepDocument> steps, List<FieldError> errors)
+    {
+        if (steps.Count == 0)
         {
             errors.Add(new FieldError("steps", "At least one step is required."));
-            return errors;
+            return;
         }
 
-        for (var index = 0; index < request.Steps.Count; index++)
+        for (var index = 0; index < steps.Count; index++)
         {
-            ValidateStep(request.Steps[index], index, errors);
+            ValidateStep(steps[index], index, errors);
         }
-
-        return errors;
     }
 
     private void ValidateStep(StepDocument step, int index, List<FieldError> errors)

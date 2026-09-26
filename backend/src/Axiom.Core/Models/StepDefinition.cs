@@ -16,5 +16,8 @@ public sealed class StepDefinition
     public string? Sql { get; set; }
     public string? SaveAs { get; set; }
 
+    /// <summary>For <c>include</c> steps: the id (file name without suffix) of the shared steps to run.</summary>
+    public string? Ref { get; set; }
+
     public List<AssertionDefinition> Assert { get; set; } = [];
 }

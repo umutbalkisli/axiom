@@ -1,5 +1,6 @@
 using Axiom.Documents;
 using Axiom.Models;
+using Axiom.Parsing;
 using Axiom.Secrets;
 using Axiom.Runtime;
 using Axiom.Services;
@@ -61,6 +62,12 @@ internal static class HostServerService
         app.MapGet("/api/assertions/aggregations", (IEnumerable<IAssertionAggregation> aggregations) =>
             Results.Ok(new { aggregations = aggregations.Select(a => a.Name) }));
         app.MapPost("/api/tests", SaveTestAsync);
+
+        app.MapGet("/api/shared", (string folderPath, CollectionManagementService manager) =>
+            Results.Ok(new { shared = manager.ListShared(folderPath) }));
+        app.MapGet("/api/shared/{fileName}", GetShared);
+        app.MapPost("/api/shared", SaveSharedAsync);
+        app.MapDelete("/api/shared/{fileName}", DeleteShared);
         app.MapDelete("/api/tests/{fileName}", DeleteTest);
     }
 
@@ -196,6 +203,7 @@ internal static class HostServerService
         }
 
         var errors = validator.Validate(payload);
+        errors.AddRange(TestCaseValidator.ValidateIncludes(payload.Steps, SharedIds(manager, folderPath)));
         if (errors.Count > 0)
         {
             return ValidationFailed(errors);
@@ -207,6 +215,63 @@ internal static class HostServerService
             return Results.Ok(new { result.FilePath, result.FileName });
         }
         catch (ArgumentException ex)
+        {
+            return Results.BadRequest(new { message = ex.Message });
+        }
+    }
+
+    private static IReadOnlySet<string> SharedIds(CollectionManagementService manager, string folderPath) =>
+        manager.ListShared(folderPath).Select(item => item.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+    private static IResult GetShared(string folderPath, string fileName, CollectionManagementService manager)
+    {
+        try
+        {
+            var shared = manager.GetShared(folderPath, fileName);
+            return shared is null ? Results.Ok(null) : Results.Ok(new { fileName, shared.Name, shared.Description, shared.Run, shared.Steps });
+        }
+        catch (ArgumentException ex)
+        {
+            return Results.BadRequest(new { message = ex.Message });
+        }
+    }
+
+    private static async Task<IResult> SaveSharedAsync(HttpRequest request, string folderPath, CollectionManagementService manager, TestCaseValidator validator, CancellationToken cancellationToken)
+    {
+        var payload = await request.ReadFromJsonAsync<SaveSharedStepsRequest>(cancellationToken);
+        if (payload is null)
+        {
+            return Results.BadRequest(new { message = "Invalid payload." });
+        }
+
+        var errors = validator.Validate(payload);
+        var ownId = string.IsNullOrWhiteSpace(payload.FileName) ? null : CollectionPaths.ToId(CollectionPaths.Shared, payload.FileName.Trim());
+        var otherIds = SharedIds(manager, folderPath).Where(id => !string.Equals(id, ownId, StringComparison.OrdinalIgnoreCase)).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        errors.AddRange(TestCaseValidator.ValidateIncludes(payload.Steps, otherIds));
+        if (errors.Count > 0)
+        {
+            return ValidationFailed(errors);
+        }
+
+        try
+        {
+            var result = manager.SaveShared(folderPath, payload);
+            return Results.Ok(new { result.FilePath, result.FileName });
+        }
+        catch (ArgumentException ex)
+        {
+            return Results.BadRequest(new { message = ex.Message });
+        }
+    }
+
+    private static IResult DeleteShared(string folderPath, string fileName, CollectionManagementService manager)
+    {
+        try
+        {
+            manager.DeleteShared(folderPath, fileName);
+            return Results.Ok(new { ok = true });
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
         {
             return Results.BadRequest(new { message = ex.Message });
         }

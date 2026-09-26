@@ -25,6 +25,7 @@ public sealed class CollectionRunner(YamlCollectionLoader loader, IServiceScopeF
         var secrets = await scope.ServiceProvider.GetRequiredService<SecretResolver>()
             .ResolveAsync(loaded.Collection.Secrets, options.Environment, cancellationToken);
 
+        var shared = new SharedStepsLibrary(loaded.SharedSteps);
         var testCases = loaded.TestCases;
         var maxParallel = Math.Max(1, loaded.Collection.RunSettings.MaxParallelTestCases);
         var channel = Channel.CreateBounded<TestCaseDefinition>(new BoundedChannelOptions(Math.Max(2, maxParallel * 2))
@@ -51,7 +52,7 @@ public sealed class CollectionRunner(YamlCollectionLoader loader, IServiceScopeF
             {
                 await foreach (var testCase in channel.Reader.ReadAllAsync(cancellationToken))
                 {
-                    var result = await testExecutor.ExecuteAsync(loaded.Collection, testCase, secrets, cancellationToken);
+                    var result = await testExecutor.ExecuteAsync(loaded.Collection, testCase, secrets, shared, cancellationToken);
                     results.Add(result);
                 }
             }, cancellationToken))

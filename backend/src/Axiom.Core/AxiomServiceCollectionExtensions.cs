@@ -37,6 +37,7 @@ public static class AxiomServiceCollectionExtensions
         // Steps: one executor (runtime) and one validator (authoring) per step type.
         services.AddSingleton<IStepValidator, RequestStepValidator>();
         services.AddSingleton<IStepValidator, DbQueryStepValidator>();
+        services.AddSingleton<IStepValidator, IncludeStepValidator>();
         services.TryAddSingleton<TestCaseValidator>();
 
         // Secret providers. Connection settings for these come from the environment, not from collection files.
@@ -55,6 +56,8 @@ public static class AxiomServiceCollectionExtensions
         services.AddScoped<IDbQueryExecutor, DbQueryExecutor>();
         services.AddScoped<IStepExecutor, RequestStepExecutor>();
         services.AddScoped<IStepExecutor, DbQueryStepExecutor>();
+        services.AddScoped<IStepExecutor, IncludeStepExecutor>();
+        services.AddScoped<StepRunner>();
         services.AddScoped<TestCaseExecutor>();
         services.AddScoped<OpenApiImporter>();
 

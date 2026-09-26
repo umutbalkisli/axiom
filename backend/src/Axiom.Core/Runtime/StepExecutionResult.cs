@@ -11,4 +11,7 @@ public sealed class StepExecutionResult
     public int? StatusCode { get; init; }
     public double DurationMs { get; init; }
     public int? RowCount { get; init; }
+
+    /// <summary>For <c>include</c> steps: the results of the shared steps that ran.</summary>
+    public IReadOnlyList<StepExecutionResult>? Children { get; init; }
 }

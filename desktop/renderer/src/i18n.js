@@ -276,7 +276,7 @@ export function normalizeSteps(items) {
   return items.map((step, index) => ({
     id: step.id || `step_${index + 1}`,
     type: step.type || 'request',
-    name: step.name || `Step ${index + 1}`,
+    name: step.name || (step.type === 'include' ? '' : `Step ${index + 1}`),
     method: step.method || 'GET',
     url: step.url || '{{base_url}}',
     queryParams: toKeyValueRows(step.queryParams || step.query_params),
@@ -285,6 +285,7 @@ export function normalizeSteps(items) {
     connection: step.connection || '',
     sql: step.sql || '',
     save_as: step.save_as || step.saveAs || '',
+    ref: step.ref || '',
     assertions: (step.assert || []).map((a) => ({
       expression: [a.source, a.path].filter(Boolean).join('.'),
       aggregate: a.aggregate || '',
@@ -323,6 +324,7 @@ export function toYamlSteps(steps) {
     connection: step.type === 'db_query' ? step.connection : undefined,
     sql: step.type === 'db_query' ? step.sql : undefined,
     saveAs: step.save_as || undefined,
+    ref: step.type === 'include' ? step.ref : undefined,
     assert: step.assertions.map((a) => ({
       ...splitExpression(a.expression),
       aggregate: a.aggregate || undefined,
@@ -347,22 +349,25 @@ export function yamlPreview(test, t) {
   return [
     `name: '${test.name}'`,
     `description: '${test.description}'`,
-    `method: '${test.method}'`,
-    `endpoint: '${test.endpoint}'`,
+    ...(test.run !== undefined
+      ? [`run: ${test.run || 'each'}`]
+      : [`method: '${test.method}'`, `endpoint: '${test.endpoint}'`]),
     'steps:',
     ...toYamlSteps(test.steps).flatMap((step) => [
       `  - id: '${step.id}'`,
       `    type: '${step.type}'`,
       `    name: '${step.name}'`,
-      ...(step.type === 'request'
-        ? [
-            `    method: '${step.method}'`,
-            `    url: '${step.url}'`,
-            `    query_params: ${JSON.stringify(step.queryParams || {})}`,
-            `    headers: ${JSON.stringify(step.headers || {})}`,
-            ...(step.body ? [`    body: '${step.body.replaceAll("'", "''")}'`] : []),
-          ]
-        : [`    connection: '${step.connection}'`, `    sql: '${step.sql}'`]),
+      ...(step.type === 'include'
+        ? [`    ref: '${step.ref}'`]
+        : step.type === 'request'
+          ? [
+              `    method: '${step.method}'`,
+              `    url: '${step.url}'`,
+              `    query_params: ${JSON.stringify(step.queryParams || {})}`,
+              `    headers: ${JSON.stringify(step.headers || {})}`,
+              ...(step.body ? [`    body: '${step.body.replaceAll("'", "''")}'`] : []),
+            ]
+          : [`    connection: '${step.connection}'`, `    sql: '${step.sql}'`]),
     ]),
   ].join('\n');
 }
@@ -381,22 +386,7 @@ export function buildReport(result, tests) {
       endpoint: known.endpoint,
       passed: Boolean(testCase.passed),
       durationMs: new Date(testCase.completedAt) - new Date(testCase.startedAt),
-      steps: (testCase.steps || []).map((step) => ({
-        name: step.name,
-        type: step.type,
-        passed: Boolean(step.passed),
-        error: step.error,
-        statusCode: step.statusCode,
-        rowCount: step.rowCount,
-        durationMs: step.durationMs,
-        assertions: (step.assertions || []).map((assertion) => ({
-          text: describeAssertion(assertion),
-          passed: Boolean(assertion.passed),
-          expected: assertion.expected,
-          actual: assertion.actual,
-          error: assertion.error,
-        })),
-      })),
+      steps: (testCase.steps || []).map(mapStep),
     };
   });
   const passed = cases.filter((item) => item.passed).length;
@@ -408,6 +398,26 @@ export function buildReport(result, tests) {
     durationMs: new Date(result.completedAt) - new Date(result.startedAt),
     completedAt: new Date(result.completedAt).toLocaleTimeString(),
     tests: cases,
+  };
+}
+
+function mapStep(step) {
+  return {
+    name: step.name,
+    type: step.type,
+    passed: Boolean(step.passed),
+    error: step.error,
+    statusCode: step.statusCode,
+    rowCount: step.rowCount,
+    durationMs: step.durationMs,
+    children: (step.children || []).map(mapStep),
+    assertions: (step.assertions || []).map((assertion) => ({
+      text: describeAssertion(assertion),
+      passed: Boolean(assertion.passed),
+      expected: assertion.expected,
+      actual: assertion.actual,
+      error: assertion.error,
+    })),
   };
 }
 

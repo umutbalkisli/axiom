@@ -110,20 +110,6 @@ public sealed class CollectionManagementService
     /// </summary>
     public (string FilePath, string FileName) SaveTest(string folderPath, SaveTestCaseRequest request)
     {
-        var testsDirectory = CollectionPaths.TestsDirectory(folderPath);
-        Directory.CreateDirectory(testsDirectory);
-
-        var currentName = string.IsNullOrWhiteSpace(request.FileName)
-            ? null
-            : CollectionPaths.ToTestFileName(request.FileName.Trim());
-        var currentPath = currentName is null ? null : CollectionPaths.TestFile(folderPath, currentName);
-        var updating = currentPath is not null && File.Exists(currentPath);
-
-        var targetName = updating
-            ? ResolveNameForUpdate(folderPath, currentName!, currentPath!, request.Name)
-            : UniqueFileName(folderPath, request.FileNameHint ?? (currentName is null ? request.Name : CollectionPaths.ToTestId(currentName)), excluding: null);
-        var targetPath = CollectionPaths.TestFile(folderPath, targetName);
-
         var document = new TestCaseDocument
         {
             Name = request.Name,
@@ -134,6 +120,181 @@ public sealed class CollectionManagementService
             Steps = NormalizeSteps(request.Steps),
         };
 
+        return SaveNamed(folderPath, CollectionPaths.Tests, request.FileName, request.FileNameHint, request.Name, document, followName: true);
+    }
+
+    public bool TestExists(string folderPath, string fileNameOrId) =>
+        File.Exists(CollectionPaths.TestFile(folderPath, fileNameOrId));
+
+    public IReadOnlyList<SharedStepsListItem> ListShared(string folderPath)
+    {
+        var directory = CollectionPaths.Directory(folderPath, CollectionPaths.Shared);
+        if (!Directory.Exists(directory))
+        {
+            return [];
+        }
+
+        var all = ReadAllShared(folderPath);
+        return all
+            .OrderBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase)
+            .Select(pair => new SharedStepsListItem
+            {
+                FileName = CollectionPaths.ToFileName(CollectionPaths.Shared, pair.Key),
+                Id = pair.Key,
+                Name = string.IsNullOrWhiteSpace(pair.Value.Name) ? ToDisplayName(pair.Key) : pair.Value.Name,
+                Description = pair.Value.Description,
+                Run = pair.Value.Run,
+                StepCount = pair.Value.Steps.Count,
+                Provides = ProvidedNames(pair.Value, all, [pair.Key]),
+            })
+            .ToList();
+    }
+
+    public SharedStepsDocument? GetShared(string folderPath, string fileName)
+    {
+        var path = CollectionPaths.File(folderPath, CollectionPaths.Shared, fileName);
+        return File.Exists(path) ? ReadShared(path) : null;
+    }
+
+    /// <summary>Saves a shared step group. Its file name is fixed once created because tests refer to it by that name.</summary>
+    public (string FilePath, string FileName) SaveShared(string folderPath, SaveSharedStepsRequest request)
+    {
+        var document = new SharedStepsDocument
+        {
+            Name = request.Name,
+            Description = request.Description ?? string.Empty,
+            Run = string.Equals(request.Run?.Trim(), SharedStepsDefinition.RunOnce, StringComparison.OrdinalIgnoreCase)
+                ? SharedStepsDefinition.RunOnce
+                : SharedStepsDefinition.RunEach,
+            Steps = NormalizeSteps(request.Steps),
+        };
+
+        return SaveNamed(folderPath, CollectionPaths.Shared, request.FileName, null, request.Name, document, followName: false);
+    }
+
+    /// <summary>Deletes a shared group unless a test or another group still includes it.</summary>
+    public void DeleteShared(string folderPath, string fileName)
+    {
+        var path = CollectionPaths.File(folderPath, CollectionPaths.Shared, fileName);
+        var id = CollectionPaths.ToId(CollectionPaths.Shared, Path.GetFileName(path));
+
+        var users = FindIncludingFiles(folderPath, id);
+        if (users.Count > 0)
+        {
+            throw new InvalidOperationException($"'{id}' is still used by: {string.Join(", ", users)}.");
+        }
+
+        if (File.Exists(path))
+        {
+            File.Delete(path);
+        }
+    }
+
+    private List<string> FindIncludingFiles(string folderPath, string sharedId)
+    {
+        bool Includes(IEnumerable<StepDocument> steps) => steps.Any(step =>
+            string.Equals(step.Type, IncludeStepExecutor.StepType, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(step.Ref?.Trim(), sharedId, StringComparison.OrdinalIgnoreCase));
+
+        var users = new List<string>();
+        var testsDirectory = CollectionPaths.TestsDirectory(folderPath);
+        if (Directory.Exists(testsDirectory))
+        {
+            foreach (var path in Directory.EnumerateFiles(testsDirectory, CollectionPaths.TestFilePattern, SearchOption.TopDirectoryOnly))
+            {
+                if (Includes(DeserializeFile<TestCaseDocument>(path)?.Steps ?? []))
+                {
+                    users.Add($"tests/{Path.GetFileName(path)}");
+                }
+            }
+        }
+
+        foreach (var (id, document) in ReadAllShared(folderPath))
+        {
+            if (!string.Equals(id, sharedId, StringComparison.OrdinalIgnoreCase) && Includes(document.Steps))
+            {
+                users.Add($"shared/{CollectionPaths.ToFileName(CollectionPaths.Shared, id)}");
+            }
+        }
+
+        return users;
+    }
+
+    private Dictionary<string, SharedStepsDocument> ReadAllShared(string folderPath)
+    {
+        var result = new Dictionary<string, SharedStepsDocument>(StringComparer.OrdinalIgnoreCase);
+        var directory = CollectionPaths.Directory(folderPath, CollectionPaths.Shared);
+        if (!Directory.Exists(directory))
+        {
+            return result;
+        }
+
+        foreach (var path in Directory.EnumerateFiles(directory, CollectionPaths.Shared.Pattern, SearchOption.TopDirectoryOnly))
+        {
+            result[CollectionPaths.ToId(CollectionPaths.Shared, Path.GetFileName(path))] = ReadShared(path);
+        }
+
+        return result;
+    }
+
+    private static SharedStepsDocument ReadShared(string path)
+    {
+        var document = DeserializeFile<SharedStepsDocument>(path) ?? new SharedStepsDocument();
+        document.Steps ??= [];
+        foreach (var step in document.Steps)
+        {
+            step.Headers ??= new(StringComparer.OrdinalIgnoreCase);
+            step.QueryParams ??= new(StringComparer.OrdinalIgnoreCase);
+            step.Assert ??= [];
+        }
+
+        return document;
+    }
+
+    /// <summary>The variables a group saves, including those saved by groups it includes.</summary>
+    private static List<string> ProvidedNames(SharedStepsDocument document, Dictionary<string, SharedStepsDocument> all, HashSet<string> visiting)
+    {
+        var names = new List<string>();
+        foreach (var step in document.Steps)
+        {
+            if (!string.IsNullOrWhiteSpace(step.SaveAs))
+            {
+                names.Add(step.SaveAs);
+            }
+
+            var reference = step.Ref?.Trim();
+            if (string.Equals(step.Type, IncludeStepExecutor.StepType, StringComparison.OrdinalIgnoreCase)
+                && reference is { Length: > 0 }
+                && all.TryGetValue(reference, out var included)
+                && visiting.Add(reference))
+            {
+                names.AddRange(ProvidedNames(included, all, visiting));
+            }
+        }
+
+        return names.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    /// <summary>
+    /// Writes a document to a file of the given kind. An existing <paramref name="requestedFile"/> is updated in place
+    /// (or renamed to follow <paramref name="name"/> when <paramref name="followName"/> and the name was generated);
+    /// otherwise a new file with a unique name is created.
+    /// </summary>
+    private (string FilePath, string FileName) SaveNamed(string folderPath, FileKind kind, string? requestedFile, string? hint, string name, object document, bool followName)
+    {
+        Directory.CreateDirectory(CollectionPaths.Directory(folderPath, kind));
+
+        var currentName = string.IsNullOrWhiteSpace(requestedFile)
+            ? null
+            : CollectionPaths.ToFileName(kind, requestedFile.Trim());
+        var currentPath = currentName is null ? null : CollectionPaths.File(folderPath, kind, currentName);
+        var updating = currentPath is not null && File.Exists(currentPath);
+
+        var targetName = updating
+            ? (followName ? ResolveNameForUpdate(folderPath, kind, currentName!, currentPath!, name) : currentName!)
+            : UniqueFileName(folderPath, kind, hint ?? (currentName is null ? name : CollectionPaths.ToId(kind, currentName)), excluding: null);
+        var targetPath = CollectionPaths.File(folderPath, kind, targetName);
+
         SerializeFile(targetPath, document);
         if (updating && !string.Equals(targetName, currentName, StringComparison.OrdinalIgnoreCase))
         {
@@ -143,37 +304,39 @@ public sealed class CollectionManagementService
         return (targetPath, targetName);
     }
 
-    public bool TestExists(string folderPath, string fileNameOrId) =>
-        File.Exists(CollectionPaths.TestFile(folderPath, fileNameOrId));
-
-    /// <summary>Keeps the file name in step with the test name, but only if the file still has the name Axiom gave it.</summary>
-    private string ResolveNameForUpdate(string folderPath, string currentName, string currentPath, string newTestName)
+    /// <summary>Keeps the file name in step with the name, but only if the file still has the name Axiom gave it.</summary>
+    private static string ResolveNameForUpdate(string folderPath, FileKind kind, string currentName, string currentPath, string newName)
     {
-        var oldTestName = DeserializeFile<TestCaseDocument>(currentPath)?.Name;
-        var currentId = CollectionPaths.ToTestId(currentName);
-        var followsName = TestFileNames.IsGeneratedFrom(currentId, oldTestName);
-        var alreadyMatches = TestFileNames.IsGeneratedFrom(currentId, newTestName);
+        var oldName = DeserializeFile<NamedDocument>(currentPath)?.Name;
+        var currentId = CollectionPaths.ToId(kind, currentName);
+        var followsName = TestFileNames.IsGeneratedFrom(currentId, oldName);
+        var alreadyMatches = TestFileNames.IsGeneratedFrom(currentId, newName);
         return followsName && !alreadyMatches
-            ? UniqueFileName(folderPath, newTestName, excluding: currentPath)
+            ? UniqueFileName(folderPath, kind, newName, excluding: currentPath)
             : currentName;
     }
 
-    private static string UniqueFileName(string folderPath, string source, string? excluding)
+    private static string UniqueFileName(string folderPath, FileKind kind, string source, string? excluding)
     {
         var slug = TestFileNames.Slug(source);
         var candidate = slug;
-        for (var number = 2; IsTaken(folderPath, candidate, excluding); number++)
+        for (var number = 2; IsTaken(folderPath, kind, candidate, excluding); number++)
         {
             candidate = $"{slug}-{number}";
         }
 
-        return CollectionPaths.ToTestFileName(candidate);
+        return CollectionPaths.ToFileName(kind, candidate);
     }
 
-    private static bool IsTaken(string folderPath, string id, string? excluding)
+    private static bool IsTaken(string folderPath, FileKind kind, string id, string? excluding)
     {
-        var path = CollectionPaths.TestFile(folderPath, id);
+        var path = CollectionPaths.File(folderPath, kind, id);
         return File.Exists(path) && !string.Equals(path, excluding, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private sealed class NamedDocument
+    {
+        public string? Name { get; set; }
     }
 
     public void DeleteTest(string folderPath, string fileName)
@@ -243,6 +406,7 @@ public sealed class CollectionManagementService
             Connection = step.Connection,
             Sql = step.Sql,
             SaveAs = step.SaveAs,
+            Ref = string.IsNullOrWhiteSpace(step.Ref) ? null : step.Ref.Trim(),
             Assert = step.Assert?.Select(assertion => new AssertionDocument
             {
                 Source = assertion.Source,

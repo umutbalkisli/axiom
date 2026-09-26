@@ -186,6 +186,45 @@ function AssertionsEditor({
   );
 }
 
+function IncludePanel({ t, step, patch, sharedOptions }) {
+  const item = sharedOptions.find((option) => option.id === step.ref);
+  return (
+    <>
+      <Field label={t.sharedSteps}>
+        <select
+          className="form-select"
+          value={step.ref}
+          onChange={(event) => patch('ref', event.target.value)}
+        >
+          <option value="">{t.chooseShared}</option>
+          {sharedOptions.map((option) => (
+            <option key={option.id} value={option.id}>
+              {option.name}
+            </option>
+          ))}
+          {step.ref && !item && <option value={step.ref}>{step.ref}</option>}
+        </select>
+      </Field>
+      {step.ref && !item && <p className="field-hint warn">{t.sharedMissing}</p>}
+      {item && (
+        <div className="include-info">
+          {item.description && <p className="muted">{item.description}</p>}
+          <div className="chip-row">
+            <span className="chip">{item.run === 'once' ? t.runsOnce : t.runsEach}</span>
+            <span className="chip">
+              {item.stepCount} {item.stepCount === 1 ? t.stepOne : t.stepsShort}
+            </span>
+            {item.provides.map((name) => (
+              <span className="chip mono" key={name} title={t.providesHint}>{`{{${name}}}`}</span>
+            ))}
+          </div>
+          <p className="field-hint">{item.run === 'once' ? t.runsOnceHint : t.runsEachHint}</p>
+        </div>
+      )}
+    </>
+  );
+}
+
 function StepCard({
   t,
   step,
@@ -197,6 +236,7 @@ function StepCard({
   removeStep,
   moveStep,
   connectionNames,
+  sharedOptions,
   ...assertionProps
 }) {
   const [panel, setPanel] = useState('params');
@@ -204,23 +244,27 @@ function StepCard({
   const isRequest = step.type === 'request';
   const supportsBody = isRequest && methodSupportsBody(step.method);
   const activePanel = panel === 'body' && !supportsBody ? 'params' : panel;
-  const summary = isRequest ? step.url : (step.sql || '').split('\n')[0];
+  const isInclude = step.type === 'include';
+  const sharedItem = sharedOptions.find((option) => option.id === step.ref);
+  let summary = (step.sql || '').split('\n')[0];
+  if (isRequest) summary = step.url;
+  if (isInclude) summary = sharedItem?.name || step.ref;
 
   return (
     <article className={`step-card ${open ? 'open' : ''}`}>
       <header className="step-head">
         <button type="button" className="step-toggle" aria-expanded={open} onClick={toggle}>
           <span className="step-number">{index + 1}</span>
-          {isRequest ? (
-            <MethodBadge method={step.method} />
-          ) : (
-            <span className="method-badge method-sql">SQL</span>
-          )}
-          <span className="step-title">{step.name || t.untitledStep}</span>
+          {isRequest && <MethodBadge method={step.method} />}
+          {isInclude && <span className="method-badge method-shared">{t.sharedBadge}</span>}
+          {!isRequest && !isInclude && <span className="method-badge method-sql">SQL</span>}
+          <span className="step-title">
+            {step.name || (isInclude ? sharedItem?.name : '') || t.untitledStep}
+          </span>
           <span className="step-summary mono" title={summary}>
             {summary}
           </span>
-          {step.assertions.length > 0 && (
+          {!isInclude && step.assertions.length > 0 && (
             <span className="chip" title={t.assertions}>
               <Icon name="checkCircle" size={13} /> {step.assertions.length}
             </span>
@@ -262,131 +306,137 @@ function StepCard({
 
       {open && (
         <div className="step-body">
-          <div className="form-grid two">
-            <Field label={t.name}>
-              <input
-                className="form-control"
-                value={step.name}
-                onChange={(event) => patch('name', event.target.value)}
-              />
-            </Field>
-            <Field label={t.saveAs} hint={step.save_as ? `{{${step.save_as}}}` : t.saveAsHint}>
-              <input
-                className="form-control font-monospace"
-                value={step.save_as}
-                placeholder={t.resultName}
-                onChange={(event) => patch('save_as', toVariableName(event.target.value))}
-              />
-            </Field>
-          </div>
-
-          {isRequest ? (
-            <>
-              <div className="request-line">
-                <select
-                  className="form-select method-select"
-                  aria-label={t.method}
-                  value={step.method}
-                  onChange={(event) => patch('method', event.target.value)}
-                >
-                  {METHODS.map((method) => (
-                    <option key={method}>{method}</option>
-                  ))}
-                </select>
-                <VariableInput
-                  value={step.url}
-                  placeholder="{{base_url}}/todos"
-                  aria-label={t.url}
-                  onChange={(event) => patch('url', event.target.value)}
-                />
-              </div>
-              <div className="tabs compact" role="tablist">
-                {[
-                  ['params', t.queryParamsShort, step.queryParams.length],
-                  ['headers', t.headersShort, step.headers.length],
-                  ...(supportsBody ? [['body', t.bodyShort, step.body ? '•' : 0]] : []),
-                ].map(([id, label, count]) => (
-                  <button
-                    type="button"
-                    role="tab"
-                    key={id}
-                    aria-selected={activePanel === id}
-                    className={`tab ${activePanel === id ? 'active' : ''}`}
-                    onClick={() => setPanel(id)}
-                  >
-                    {label}
-                    {count ? <span className="count-pill">{count}</span> : null}
-                  </button>
-                ))}
-              </div>
-              {activePanel === 'params' && (
-                <KeyValueEditor
-                  t={t}
-                  rows={step.queryParams}
-                  onChange={(rows) => patch('queryParams', rows)}
-                  keyPlaceholder="page"
-                  valuePlaceholder="1"
-                  addLabel={t.addQueryParameter}
-                />
-              )}
-              {activePanel === 'headers' && (
-                <KeyValueEditor
-                  t={t}
-                  rows={step.headers}
-                  onChange={(rows) => patch('headers', rows)}
-                  keyPlaceholder="Authorization"
-                  valuePlaceholder="Bearer {{secret.api_token}}"
-                  addLabel={t.addHeader}
-                />
-              )}
-              {activePanel === 'body' && (
-                <VariableTextarea
-                  rows={7}
-                  value={step.body}
-                  placeholder={'{\n  "title": "New todo"\n}'}
-                  onChange={(event) => patch('body', event.target.value)}
-                />
-              )}
-            </>
+          {isInclude ? (
+            <IncludePanel t={t} step={step} patch={patch} sharedOptions={sharedOptions} />
           ) : (
             <>
-              <Field label={t.connection}>
-                {connectionNames.length ? (
-                  <select
-                    className="form-select"
-                    value={step.connection}
-                    onChange={(event) => patch('connection', event.target.value)}
-                  >
-                    <option value="">{t.chooseConnection}</option>
-                    {[...new Set([...connectionNames, step.connection].filter(Boolean))].map(
-                      (name) => (
-                        <option key={name} value={name}>
-                          {name}
-                        </option>
-                      ),
-                    )}
-                  </select>
-                ) : (
+              <div className="form-grid two">
+                <Field label={t.name}>
+                  <input
+                    className="form-control"
+                    value={step.name}
+                    onChange={(event) => patch('name', event.target.value)}
+                  />
+                </Field>
+                <Field label={t.saveAs} hint={step.save_as ? `{{${step.save_as}}}` : t.saveAsHint}>
                   <input
                     className="form-control font-monospace"
-                    value={step.connection}
-                    placeholder={t.noConnectionsYet}
-                    onChange={(event) => patch('connection', event.target.value)}
+                    value={step.save_as}
+                    placeholder={t.resultName}
+                    onChange={(event) => patch('save_as', toVariableName(event.target.value))}
                   />
-                )}
-              </Field>
-              <Field label={t.sql}>
-                <VariableTextarea
-                  rows={4}
-                  value={step.sql}
-                  placeholder="SELECT Id FROM todos LIMIT 1"
-                  onChange={(event) => patch('sql', event.target.value)}
-                />
-              </Field>
+                </Field>
+              </div>
+
+              {isRequest ? (
+                <>
+                  <div className="request-line">
+                    <select
+                      className="form-select method-select"
+                      aria-label={t.method}
+                      value={step.method}
+                      onChange={(event) => patch('method', event.target.value)}
+                    >
+                      {METHODS.map((method) => (
+                        <option key={method}>{method}</option>
+                      ))}
+                    </select>
+                    <VariableInput
+                      value={step.url}
+                      placeholder="{{base_url}}/todos"
+                      aria-label={t.url}
+                      onChange={(event) => patch('url', event.target.value)}
+                    />
+                  </div>
+                  <div className="tabs compact" role="tablist">
+                    {[
+                      ['params', t.queryParamsShort, step.queryParams.length],
+                      ['headers', t.headersShort, step.headers.length],
+                      ...(supportsBody ? [['body', t.bodyShort, step.body ? '•' : 0]] : []),
+                    ].map(([id, label, count]) => (
+                      <button
+                        type="button"
+                        role="tab"
+                        key={id}
+                        aria-selected={activePanel === id}
+                        className={`tab ${activePanel === id ? 'active' : ''}`}
+                        onClick={() => setPanel(id)}
+                      >
+                        {label}
+                        {count ? <span className="count-pill">{count}</span> : null}
+                      </button>
+                    ))}
+                  </div>
+                  {activePanel === 'params' && (
+                    <KeyValueEditor
+                      t={t}
+                      rows={step.queryParams}
+                      onChange={(rows) => patch('queryParams', rows)}
+                      keyPlaceholder="page"
+                      valuePlaceholder="1"
+                      addLabel={t.addQueryParameter}
+                    />
+                  )}
+                  {activePanel === 'headers' && (
+                    <KeyValueEditor
+                      t={t}
+                      rows={step.headers}
+                      onChange={(rows) => patch('headers', rows)}
+                      keyPlaceholder="Authorization"
+                      valuePlaceholder="Bearer {{secret.api_token}}"
+                      addLabel={t.addHeader}
+                    />
+                  )}
+                  {activePanel === 'body' && (
+                    <VariableTextarea
+                      rows={7}
+                      value={step.body}
+                      placeholder={'{\n  "title": "New todo"\n}'}
+                      onChange={(event) => patch('body', event.target.value)}
+                    />
+                  )}
+                </>
+              ) : (
+                <>
+                  <Field label={t.connection}>
+                    {connectionNames.length ? (
+                      <select
+                        className="form-select"
+                        value={step.connection}
+                        onChange={(event) => patch('connection', event.target.value)}
+                      >
+                        <option value="">{t.chooseConnection}</option>
+                        {[...new Set([...connectionNames, step.connection].filter(Boolean))].map(
+                          (name) => (
+                            <option key={name} value={name}>
+                              {name}
+                            </option>
+                          ),
+                        )}
+                      </select>
+                    ) : (
+                      <input
+                        className="form-control font-monospace"
+                        value={step.connection}
+                        placeholder={t.noConnectionsYet}
+                        onChange={(event) => patch('connection', event.target.value)}
+                      />
+                    )}
+                  </Field>
+                  <Field label={t.sql}>
+                    <VariableTextarea
+                      rows={4}
+                      value={step.sql}
+                      placeholder="SELECT Id FROM todos LIMIT 1"
+                      onChange={(event) => patch('sql', event.target.value)}
+                    />
+                  </Field>
+                </>
+              )}
+
+              <AssertionsEditor t={t} step={step} index={index} {...assertionProps} />
             </>
           )}
-
-          <AssertionsEditor t={t} step={step} index={index} {...assertionProps} />
         </div>
       )}
     </article>
@@ -413,7 +463,18 @@ export default function Builder({
   aggregations,
   connectionNames,
   variableNames,
+  kind = 'test',
+  sharedList = [],
 }) {
+  const isShared = kind === 'shared';
+  // A group cannot include itself; every other group can be included.
+  const sharedOptions = sharedList.filter((item) => !(isShared && item.fileName === fileName));
+  const providedBy = (step) => [
+    step.save_as,
+    ...(step.type === 'include'
+      ? (sharedOptions.find((item) => item.id === step.ref)?.provides ?? [])
+      : []),
+  ];
   const [open, setOpen] = useState(
     () => new Set(test.steps.length <= 3 ? test.steps.map((_, i) => i) : [0]),
   );
@@ -456,7 +517,7 @@ export default function Builder({
       return next;
     });
   const allOpen = test.steps.length > 0 && open.size >= test.steps.length;
-  const canSave = test.name.trim() && test.endpoint.trim();
+  const canSave = test.name.trim() && (isShared || test.endpoint.trim());
 
   return (
     <div className="page">
@@ -496,7 +557,7 @@ export default function Builder({
         <input
           className="title-input"
           value={test.name}
-          placeholder={t.testNamePlaceholder}
+          placeholder={isShared ? t.sharedNamePlaceholder : t.testNamePlaceholder}
           aria-label={t.testName}
           autoFocus={isNew}
           onChange={(event) => setTest({ ...test, name: event.target.value })}
@@ -508,31 +569,56 @@ export default function Builder({
           aria-label={t.description}
           onChange={(event) => setTest({ ...test, description: event.target.value })}
         />
-        <div className="endpoint-line">
-          <select
-            className="form-select method-select"
-            aria-label={t.method}
-            value={test.method}
-            onChange={(event) => setTest({ ...test, method: event.target.value })}
-          >
-            {METHODS.map((method) => (
-              <option key={method}>{method}</option>
-            ))}
-          </select>
-          <input
-            className="form-control font-monospace"
-            value={test.endpoint}
-            placeholder="/todos/{id}"
-            aria-label={t.endpoint}
-            onChange={(event) => setTest({ ...test, endpoint: event.target.value })}
-          />
-        </div>
-        <p className="field-hint">{t.endpointHint}</p>
-        <p className="field-hint file-hint" title={t.fileHint}>
+        {isShared ? (
+          <>
+            <div className="endpoint-line">
+              <select
+                className="form-select run-select"
+                aria-label={t.runMode}
+                value={test.run}
+                onChange={(event) => setTest({ ...test, run: event.target.value })}
+              >
+                <option value="each">{t.runsEach}</option>
+                <option value="once">{t.runsOnce}</option>
+              </select>
+            </div>
+            <p className="field-hint">{test.run === 'once' ? t.runsOnceHint : t.runsEachHint}</p>
+          </>
+        ) : (
+          <>
+            <div className="endpoint-line">
+              <select
+                className="form-select method-select"
+                aria-label={t.method}
+                value={test.method}
+                onChange={(event) => setTest({ ...test, method: event.target.value })}
+              >
+                {METHODS.map((method) => (
+                  <option key={method}>{method}</option>
+                ))}
+              </select>
+              <input
+                className="form-control font-monospace"
+                value={test.endpoint}
+                placeholder="/todos/{id}"
+                aria-label={t.endpoint}
+                onChange={(event) => setTest({ ...test, endpoint: event.target.value })}
+              />
+            </div>
+            <p className="field-hint">{t.endpointHint}</p>
+          </>
+        )}
+        <p className="field-hint file-hint" title={isShared ? t.sharedFileHint : t.fileHint}>
           <Icon name="code" size={12} />
-          <span className="mono">{fileName ? `tests/${fileName}` : t.newFileHint}</span>
+          <span className="mono">
+            {fileName ? `${isShared ? 'shared' : 'tests'}/${fileName}` : t.newFileHint}
+          </span>
         </p>
-        {!canSave && dirty && <p className="field-hint warn">{t.nameAndEndpointRequired}</p>}
+        {!canSave && dirty && (
+          <p className="field-hint warn">
+            {isShared ? t.nameRequiredShared : t.nameAndEndpointRequired}
+          </p>
+        )}
       </header>
 
       <div className="section-head steps-head">
@@ -566,13 +652,14 @@ export default function Builder({
             removeStep={remove}
             moveStep={move}
             connectionNames={connectionNames}
+            sharedOptions={sharedOptions}
             aggregations={aggregations}
             addAssertion={addAssertion}
             updateAssertion={updateAssertion}
             removeAssertion={removeAssertion}
             savedNames={test.steps
               .slice(0, index + 1)
-              .map((previous) => previous.save_as)
+              .flatMap(providedBy)
               .filter(Boolean)}
             variableNames={variableNames}
           />
@@ -585,6 +672,15 @@ export default function Builder({
             </button>
             <button type="button" className="btn btn-dashed" onClick={() => addStep('db_query')}>
               <Icon name="database" size={15} /> {t.dbStep}
+            </button>
+            <button
+              type="button"
+              className="btn btn-dashed"
+              disabled={sharedOptions.length === 0}
+              title={sharedOptions.length === 0 ? t.noSharedYet : t.sharedStepButtonHint}
+              onClick={() => addStep('include')}
+            >
+              <Icon name="swap" size={15} /> {t.sharedStepButton}
             </button>
           </div>
         </div>

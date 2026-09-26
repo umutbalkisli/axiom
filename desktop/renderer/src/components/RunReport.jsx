@@ -53,6 +53,47 @@ function AssertionLine({ t, assertion }) {
   );
 }
 
+function StepResult({ t, step }) {
+  return (
+    <div className="result-step">
+      <div className="result-step-head">
+        <StatusIcon passed={step.passed} />
+        <strong>{step.name}</strong>
+        <span className="chip">
+          {step.type === 'db_query' ? 'SQL' : step.type === 'include' ? t.sharedBadge : step.type}
+        </span>
+        {step.statusCode != null && (
+          <span className="chip">
+            {t.status} {step.statusCode}
+          </span>
+        )}
+        {step.rowCount != null && (
+          <span className="chip">
+            {step.rowCount} {t.rows}
+          </span>
+        )}
+        <span className="spacer" />
+        <span className="mono muted">{formatDuration(step.durationMs)}</span>
+      </div>
+      {step.error && <div className="error-box">{step.error}</div>}
+      {step.assertions.length > 0 && (
+        <ul className="assertion-list">
+          {step.assertions.map((assertion, i) => (
+            <AssertionLine key={i} t={t} assertion={assertion} />
+          ))}
+        </ul>
+      )}
+      {step.children?.length > 0 && (
+        <div className="result-children">
+          {step.children.map((child, i) => (
+            <StepResult key={i} t={t} step={child} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function TestRow({ t, test, open, toggle }) {
   return (
     <div className={`result-row ${test.passed ? 'pass' : 'fail'} ${open ? 'open' : ''}`}>
@@ -69,33 +110,7 @@ function TestRow({ t, test, open, toggle }) {
         <div className="result-body">
           {test.steps.length === 0 && <p className="muted small">{t.noSteps}</p>}
           {test.steps.map((step, index) => (
-            <div className="result-step" key={index}>
-              <div className="result-step-head">
-                <StatusIcon passed={step.passed} />
-                <strong>{step.name}</strong>
-                <span className="chip">{step.type === 'db_query' ? 'SQL' : step.type}</span>
-                {step.statusCode != null && (
-                  <span className="chip">
-                    {t.status} {step.statusCode}
-                  </span>
-                )}
-                {step.rowCount != null && (
-                  <span className="chip">
-                    {step.rowCount} {t.rows}
-                  </span>
-                )}
-                <span className="spacer" />
-                <span className="mono muted">{formatDuration(step.durationMs)}</span>
-              </div>
-              {step.error && <div className="error-box">{step.error}</div>}
-              {step.assertions.length > 0 && (
-                <ul className="assertion-list">
-                  {step.assertions.map((assertion, i) => (
-                    <AssertionLine key={i} t={t} assertion={assertion} />
-                  ))}
-                </ul>
-              )}
-            </div>
+            <StepResult key={index} t={t} step={step} />
           ))}
         </div>
       )}

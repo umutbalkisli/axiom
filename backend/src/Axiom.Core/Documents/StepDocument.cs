@@ -15,6 +15,7 @@ public sealed class StepDocument
     public string? Connection { get; set; }
     public string? Sql { get; set; }
     public string? SaveAs { get; set; }
+    public string? Ref { get; set; }
 
     public List<AssertionDocument> Assert { get; set; } = [];
 }

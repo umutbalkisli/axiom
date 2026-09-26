@@ -19,6 +19,7 @@ public static partial class TestFileNames
         var source = (text ?? string.Empty)
             .Trim()
             .Replace(CollectionPaths.TestFileSuffix, string.Empty, StringComparison.OrdinalIgnoreCase)
+            .Replace(CollectionPaths.SharedFileSuffix, string.Empty, StringComparison.OrdinalIgnoreCase)
             .Replace('ı', 'i')
             .Replace('İ', 'I');
 

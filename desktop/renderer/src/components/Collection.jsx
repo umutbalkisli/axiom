@@ -94,6 +94,54 @@ function TestsTab({ t, tests, runStatus, openTest, newTest, openImport }) {
   );
 }
 
+function SharedTab({ t, shared, openShared, newShared }) {
+  if (!shared.length) {
+    return (
+      <EmptyState
+        icon="swap"
+        title={t.noSharedTitle}
+        description={t.noSharedDescription}
+        action={
+          <button type="button" className="btn btn-primary" onClick={newShared}>
+            <Icon name="plus" size={15} /> {t.newShared}
+          </button>
+        }
+      />
+    );
+  }
+  return (
+    <div className="stack">
+      <p className="hint">{t.sharedHint}</p>
+      <div className="list-card">
+        {shared.map((item) => (
+          <button
+            type="button"
+            key={item.fileName}
+            className="list-row"
+            onClick={() => openShared(item.fileName)}
+          >
+            <Icon name="swap" size={16} />
+            <span className="list-row-main">
+              <span className="list-row-title">{item.name}</span>
+              <span className="mono muted">{item.description || `shared/${item.fileName}`}</span>
+            </span>
+            <span className="chip">{item.run === 'once' ? t.runsOnce : t.runsEach}</span>
+            <span className="chip">
+              {item.stepCount} {item.stepCount === 1 ? t.stepOne : t.stepsShort}
+            </span>
+            <Icon name="chevronRight" size={14} />
+          </button>
+        ))}
+      </div>
+      <div>
+        <button type="button" className="btn btn-secondary" onClick={newShared}>
+          <Icon name="plus" size={15} /> {t.newShared}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function VariablesTab({ t, collection, setCollection }) {
   const entries = Object.entries(collection.variables || {});
   const set = (variables) => setCollection({ ...collection, variables });
@@ -496,6 +544,9 @@ export default function Collection({
   runStatus,
   openTest,
   newTest,
+  shared,
+  openShared,
+  newShared,
   openImport,
   secretProviders,
   localSecretNames,
@@ -505,6 +556,7 @@ export default function Collection({
 }) {
   const tabs = [
     { id: 'tests', label: t.cases, icon: 'list', count: tests.length },
+    { id: 'shared', label: t.sharedTab, icon: 'swap', count: shared.length },
     {
       id: 'variables',
       label: t.globals,
@@ -548,6 +600,9 @@ export default function Collection({
             newTest={newTest}
             openImport={openImport}
           />
+        )}
+        {tab === 'shared' && (
+          <SharedTab t={t} shared={shared} openShared={openShared} newShared={newShared} />
         )}
         {tab === 'variables' && (
           <VariablesTab t={t} collection={collection} setCollection={setCollection} />

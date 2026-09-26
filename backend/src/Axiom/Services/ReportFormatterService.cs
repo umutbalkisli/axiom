@@ -46,30 +46,36 @@ internal static class ReportFormatterService
         }
     }
 
-    private static void AddStepLines(List<string> lines, StepExecutionResult step)
+    private static void AddStepLines(List<string> lines, StepExecutionResult step, int depth = 0)
     {
+        var indent = new string(' ', depth * 4);
         var stepStatus = step.Passed ? "OK" : "ERR";
-        lines.Add($"    - {stepStatus} {step.Id} ({step.Type}) [{step.DurationMs:F0} ms]");
+        lines.Add($"{indent}    - {stepStatus} {step.Id} ({step.Type}) [{step.DurationMs:F0} ms]");
 
         if (!string.IsNullOrWhiteSpace(step.Error))
         {
-            lines.Add($"      Error: {step.Error}");
+            lines.Add($"{indent}      Error: {step.Error}");
         }
 
         foreach (var assertion in step.Assertions)
         {
-            AddAssertionLines(lines, assertion);
+            AddAssertionLines(lines, assertion, indent);
+        }
+
+        foreach (var child in step.Children ?? [])
+        {
+            AddStepLines(lines, child, depth + 1);
         }
     }
 
-    private static void AddAssertionLines(List<string> lines, AssertionResult assertion)
+    private static void AddAssertionLines(List<string> lines, AssertionResult assertion, string indent)
     {
         var status = assertion.Passed ? "PASS" : "FAIL";
-        lines.Add($"      [{status}] Assertion: source={assertion.Source}{(string.IsNullOrEmpty(assertion.Path) ? string.Empty : "." + assertion.Path)}{(string.IsNullOrEmpty(assertion.Aggregate) ? string.Empty : $" ({assertion.Aggregate})")}, op={assertion.Operator}, expected={assertion.Expected}, actual={assertion.Actual}");
+        lines.Add($"{indent}      [{status}] Assertion: source={assertion.Source}{(string.IsNullOrEmpty(assertion.Path) ? string.Empty : "." + assertion.Path)}{(string.IsNullOrEmpty(assertion.Aggregate) ? string.Empty : $" ({assertion.Aggregate})")}, op={assertion.Operator}, expected={assertion.Expected}, actual={assertion.Actual}");
 
         if (!assertion.Passed && !string.IsNullOrWhiteSpace(assertion.Error))
         {
-            lines.Add($"        Error: {assertion.Error}");
+            lines.Add($"{indent}        Error: {assertion.Error}");
         }
     }
 }

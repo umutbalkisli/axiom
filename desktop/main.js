@@ -143,6 +143,38 @@ ipcMain.handle('check-folder', async (_, payload) => ({
   hasCollection: fs.existsSync(path.join(payload.folderPath, 'collection.yaml')),
 }));
 
+ipcMain.handle('list-shared', async (_, payload) => {
+  const data = await hostRequest('GET', '/api/shared', { folderPath: payload.folderPath });
+  return data?.shared || [];
+});
+
+ipcMain.handle('get-shared', async (_, payload) =>
+  hostRequest('GET', `/api/shared/${encodeURIComponent(payload.fileName)}`, {
+    folderPath: payload.folderPath,
+  }),
+);
+
+ipcMain.handle('save-shared', async (_, payload) =>
+  hostRequest(
+    'POST',
+    '/api/shared',
+    { folderPath: payload.folderPath },
+    {
+      fileName: payload.fileName,
+      name: payload.name,
+      description: payload.description,
+      run: payload.run,
+      steps: payload.steps || [],
+    },
+  ),
+);
+
+ipcMain.handle('delete-shared', async (_, payload) =>
+  hostRequest('DELETE', `/api/shared/${encodeURIComponent(payload.fileName)}`, {
+    folderPath: payload.folderPath,
+  }),
+);
+
 ipcMain.handle('get-aggregations', async () => {
   const data = await hostRequest('GET', '/api/assertions/aggregations');
   return data?.aggregations || [];

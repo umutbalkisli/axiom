@@ -150,6 +150,14 @@
   align-items: center;
   gap: 8px;
 }
+.result-children {
+  margin: 8px 0 0 12px;
+  padding-left: 14px;
+  border-left: 2px solid var(--border);
+}
+.result-children .result-step {
+  padding-top: 8px;
+}
 .error-box {
   margin: 8px 0 0 24px;
   padding: 8px 10px;

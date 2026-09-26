@@ -81,6 +81,7 @@ public sealed partial class RunSecrets
             StatusCode = step.StatusCode,
             DurationMs = step.DurationMs,
             RowCount = step.RowCount,
+            Children = step.Children?.Select(Mask).ToList(),
         };
     }
 
