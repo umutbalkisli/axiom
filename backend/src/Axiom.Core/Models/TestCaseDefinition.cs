@@ -1,3 +1,5 @@
+using YamlDotNet.Serialization;
+
 namespace Axiom.Models;
 
 /// <summary>
@@ -14,6 +16,14 @@ public sealed class TestCaseDefinition
     /// </summary>
     public string? Description { get; set; }
     /// <summary>
+    /// The endpoint the test is about (e.g. <c>/todos/{id}</c>); shown in the desktop app, not used when running.
+    /// </summary>
+    public string? Endpoint { get; set; }
+    /// <summary>
+    /// The HTTP method of <see cref="Endpoint"/>; shown in the desktop app, not used when running.
+    /// </summary>
+    public string? Method { get; set; }
+    /// <summary>
     /// Variables local to this test, by name.
     /// </summary>
     public Dictionary<string, object?> Variables { get; set; } = new(StringComparer.OrdinalIgnoreCase);
@@ -24,5 +34,6 @@ public sealed class TestCaseDefinition
     /// <summary>
     /// The file the test was loaded from.
     /// </summary>
+    [YamlIgnore]
     public string SourceFile { get; set; } = string.Empty;
 }

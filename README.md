@@ -17,7 +17,9 @@ Axiom is an API test platform and it's designed to write tests without using a p
   - import a collection from an OpenAPI/Swagger URL
   - edit collection variables and run settings
   - create, edit, reorder and delete test steps with a visual builder (unsaved-changes tracking, collapsible steps)
-  - run the collection and see, per test, which step and assertion failed and why (expected vs actual)
+  - **Send** a single step while building a test: the steps up to it run as they are in the editor (saved or not), and its response (status, headers, JSON body) or SQL rows are shown; click any value to add a check for it
+  - run the whole collection, one test, or only the tests that failed last time; results appear as each test finishes, and a run can be cancelled
+  - see, per test, which step and assertion failed and why (expected vs actual)
   - reopens the last collection on launch, with a recent-collections list
   - English and Turkish UI, light/dark/system theme
 
@@ -63,7 +65,7 @@ Everything below is registered through DI in `AddAxiomCore()`; add your own regi
 dotnet test backend/tests/Axiom.Tests
 ```
 
-The xUnit suite (about 245 tests, a few seconds) covers the assertion engine (every operator, option, aggregation and outcome), template and path resolution, secrets and their providers (Vault and Kubernetes against a local fake server), the YAML loader, file naming, validation, the collection management service, shared steps (including run-once sharing across parallel tests and cycle detection), the request and database step executors, and whole-collection runs through the real dependency injection setup with a stubbed HTTP handler. No test needs network access. The public API of `Axiom.Core` is documented with XML comments.
+The xUnit suite (about 280 tests, a few seconds) covers the assertion engine (every operator, option, aggregation and outcome), template and path resolution, secrets and their providers (Vault and Kubernetes against a local fake server), the YAML loader, file naming, validation, the collection management service, shared steps (including run-once sharing across parallel tests and cycle detection), the request and database step executors, and whole-collection runs through the real dependency injection setup with a stubbed HTTP handler. No test needs network access. The public API of `Axiom.Core` is documented with XML comments.
 
 ## Requirements
 
@@ -82,7 +84,7 @@ dotnet run --project backend/src/Axiom -- serve [--port <number>]
 ```
 
 - `run` executes every `tests/**/*.test.yaml` in the collection and prints a report. With `--json` the result is printed as a JSON envelope (`{ ok, data, error }`).
-- `serve` starts the local HTTP host on `127.0.0.1` (default port `50743`). The desktop app starts this itself.
+- `serve` starts the local HTTP host on `127.0.0.1` (default port `50743`; `--port 0` picks a free one). The desktop app starts this itself.
 
 Exit codes for `run`:
 
@@ -103,6 +105,8 @@ The summary line and the JSON result count both (`failedCount`, `errorCount`), a
 
 Used by the desktop app (via Electron IPC). All collection endpoints take a `folderPath` query parameter.
 
+Every request must carry `Authorization: Bearer <token>`; anything else gets `401`. The API reads and writes files and runs tests, so neither another program on the machine nor a web page open in a browser may call it. The token comes from the `AXIOM_HOST_TOKEN` environment variable: the desktop app generates a new one at every launch and starts the host on a free port. Started by hand without it, `serve` generates a token and prints it (`AXIOM_HOST_TOKEN <token>`).
+
 | Method | Route | Purpose |
 | --- | --- | --- |
 | GET | `/health` | Health check |
@@ -117,7 +121,10 @@ Used by the desktop app (via Electron IPC). All collection endpoints take a `fol
 | GET | `/api/tests/{fileName}` | Read one scenario |
 | POST | `/api/tests` | Create or update a scenario |
 | DELETE | `/api/tests/{fileName}` | Delete a scenario |
-| POST | `/api/run` | Run the collection and return the report (optional body: `localSecrets`, `environment`) |
+| POST | `/api/tests/preview` | Run an unsaved test's steps up to one of them and return what that step received (body: `test`, `stepIndex`, optional `localSecrets`, `environment`) |
+| POST | `/api/run` | Run the collection (optional body: `localSecrets`, `environment`, `tests` to run only some); streams progress, see below |
+
+`/api/run` answers with newline-delimited JSON (`application/x-ndjson`), one event per line as it happens: `{"type":"started","total":N}`, then `{"type":"test","test":{...}}` as each test finishes, then `{"type":"completed","exitCode":0,"report":"...","result":{...}}`, or `{"type":"failed","message":"..."}` if the run could not start. Closing the request cancels the run.
 
 ## Collection layout
 
@@ -179,6 +186,14 @@ steps:
 
 ## YAML format (v0)
 
+Keys are checked when a collection is loaded for a run: a key Axiom does not know is an error, not something silently skipped, so a misspelled `asert:` cannot turn into a test that checks nothing. The message names the file, the line and the likely intended key:
+
+```
+tests/get-user.test.yaml (line 7, column 3): unknown key 'asert' in a step. Did you mean 'assert'? Valid keys: id, type, name, ...
+```
+
+Values inserted by templates (`{{variable}}`) are written the same way on every machine: `1.5` stays `1.5` on a system set to Turkish or German.
+
 Collection file: `collection.yaml`
 
 ```yaml
@@ -199,6 +214,8 @@ request_defaults:
 ```
 
 Relative SQLite `Data Source` paths are resolved against the collection folder.
+
+Database connections are pooled per connection string for the length of a run, so tests running in parallel query side by side instead of waiting for each other. A private in-memory SQLite database (`Data Source=:memory:`) exists only inside one connection, so its queries share a single connection and take turns.
 
 Test file: `tests/*.test.yaml`
 

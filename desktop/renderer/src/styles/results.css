@@ -63,6 +63,31 @@
   overflow: hidden;
   background: var(--canvas-inset);
 }
+.run-banner-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+/* Tests listed as they finish during a run. */
+.live-results {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--canvas);
+}
+.live-results li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 16px;
+  border-bottom: 1px solid var(--border-muted);
+}
+.live-results li:last-child {
+  border-bottom: none;
+}
 .progress-bar span {
   display: block;
   height: 100%;

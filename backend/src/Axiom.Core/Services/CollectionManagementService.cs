@@ -129,20 +129,23 @@ public sealed class CollectionManagementService
     /// (and renamed to follow a changed test name, unless its name was customised). Otherwise a new file is
     /// created with a unique, name-derived file name; an existing test is never overwritten by accident.
     /// </summary>
-    public (string FilePath, string FileName) SaveTest(string folderPath, SaveTestCaseRequest request)
-    {
-        var document = new TestCaseDocument
-        {
-            Name = request.Name,
-            Description = request.Description ?? string.Empty,
-            Endpoint = request.Endpoint,
-            Method = request.Method,
-            Variables = NormalizeDictionary(request.Variables),
-            Steps = NormalizeSteps(request.Steps),
-        };
+    public (string FilePath, string FileName) SaveTest(string folderPath, SaveTestCaseRequest request) =>
+        SaveNamed(folderPath, CollectionPaths.Tests, request.FileName, request.FileNameHint, request.Name, ToDocument(request), followName: true);
 
-        return SaveNamed(folderPath, CollectionPaths.Tests, request.FileName, request.FileNameHint, request.Name, document, followName: true);
-    }
+    /// <summary>
+    /// The YAML a test would be saved as. Lets an unsaved test be run exactly as it will run once saved.
+    /// </summary>
+    public static string ToYaml(SaveTestCaseRequest request) => YamlSerialization.Serializer.Serialize(ToDocument(request));
+
+    private static TestCaseDocument ToDocument(SaveTestCaseRequest request) => new()
+    {
+        Name = request.Name,
+        Description = request.Description ?? string.Empty,
+        Endpoint = request.Endpoint,
+        Method = request.Method,
+        Variables = NormalizeDictionary(request.Variables),
+        Steps = NormalizeSteps(request.Steps),
+    };
 
     /// <summary>
     /// True when the test file exists.

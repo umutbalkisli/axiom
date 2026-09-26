@@ -144,4 +144,98 @@ public class YamlCollectionLoaderTests
         Assert.Equal(2, loaded.SharedSteps.Count);
         Assert.Equal("Deep", Assert.Single(loaded.TestCases).Name);
     }
+
+    [Fact]
+    public void A_misspelled_key_fails_the_load_with_file_line_and_the_likely_intended_key()
+    {
+        using var folder = new TempFolder();
+        folder.Write("collection.yaml", MinimalCollection);
+        var path = folder.Write("tests/a.test.yaml", """
+            name: A
+            steps:
+            - id: r
+              type: request
+              method: GET
+              url: '{{base_url}}'
+              asert:
+              - { source: status, operator: '==', expected: 200 }
+            """);
+
+        var error = Assert.Throws<InvalidOperationException>(() => Load(folder));
+
+        Assert.Contains(path, error.Message);
+        Assert.Contains("line 7", error.Message);
+        Assert.Contains("unknown key 'asert' in a step", error.Message);
+        Assert.Contains("Did you mean 'assert'?", error.Message);
+    }
+
+    [Theory]
+    [InlineData("collection.yaml", "name: C\nrun_setings: { max_parallel_test_cases: 2 }\n", "in the collection", "run_settings")]
+    [InlineData("collection.yaml", "name: C\nrun_settings: { max_paralel_test_cases: 2 }\n", "in run_settings", "max_parallel_test_cases")]
+    [InlineData("tests/a.test.yaml", "name: A\nstep: []\n", "in the test", "steps")]
+    [InlineData("tests/a.test.yaml", "name: A\nsteps:\n- { id: r, type: request, url: x, assert: [ { source: status, operater: '==' } ] }\n", "in an assertion", "operator")]
+    [InlineData("shared/s.shared.yaml", "name: S\nrun_mode: once\nsteps: []\n", "in the shared steps", null)]
+    public void Unknown_keys_are_rejected_in_every_kind_of_file(string file, string yaml, string section, string? suggestion)
+    {
+        using var folder = new TempFolder();
+        folder.Write("collection.yaml", MinimalCollection);
+        folder.Write(file, yaml);
+
+        var error = Assert.Throws<InvalidOperationException>(() => Load(folder));
+
+        Assert.Contains(section, error.Message);
+        if (suggestion is not null)
+        {
+            Assert.Contains($"Did you mean '{suggestion}'?", error.Message);
+        }
+    }
+
+    [Fact]
+    public void A_file_the_loader_cannot_read_names_the_file_and_position()
+    {
+        using var folder = new TempFolder();
+        folder.Write("collection.yaml", MinimalCollection);
+        var path = folder.Write("tests/a.test.yaml", "name: A\nsteps: [ { id: r\n");
+
+        var error = Assert.Throws<InvalidOperationException>(() => Load(folder));
+
+        Assert.StartsWith($"{path} (line ", error.Message);
+    }
+
+    [Fact]
+    public void Keys_the_desktop_app_writes_are_accepted()
+    {
+        using var folder = new TempFolder();
+        folder.Write("collection.yaml", MinimalCollection);
+        folder.Write("tests/a.test.yaml", "name: A\ndescription: d\nendpoint: /todos/{id}\nmethod: GET\nvariables: {}\nsteps: []\n");
+
+        var test = Assert.Single(Load(folder).TestCases);
+
+        Assert.Equal("/todos/{id}", test.Endpoint);
+        Assert.Equal("GET", test.Method);
+    }
+
+    [Fact]
+    public void A_filter_loads_only_the_picked_tests_and_does_not_parse_the_others()
+    {
+        using var folder = new TempFolder();
+        folder.Write("collection.yaml", MinimalCollection);
+        folder.Write("tests/a.test.yaml", "name: A\nsteps: []\n");
+        folder.Write("tests/b.test.yaml", "name: B\nnot_a_key: 1\n");         // broken, but not picked
+
+        var loaded = new YamlCollectionLoader().Load(folder.Path, file => file == "a.test.yaml");
+
+        Assert.Equal(["A"], loaded.TestCases.Select(t => t.Name));
+    }
+
+    [Fact]
+    public void ParseTest_reads_an_unsaved_test_like_a_file()
+    {
+        var test = new YamlCollectionLoader().ParseTest("name: Draft\nsteps:\n- { type: request, url: x }\n", "unsaved test");
+
+        Assert.Equal("Draft", test.Name);
+        Assert.Equal("unsaved test", test.SourceFile);
+        Assert.False(string.IsNullOrEmpty(test.Steps[0].Id));                      // normalized like a loaded file
+        Assert.Throws<InvalidOperationException>(() => new YamlCollectionLoader().ParseTest("name: D\nsetps: []\n", "unsaved test"));
+    }
 }

@@ -5,6 +5,14 @@ contextBridge.exposeInMainWorld('axiomApi', {
   initCollection: (payload) => ipcRenderer.invoke('init-collection', payload),
   importOpenApi: (payload) => ipcRenderer.invoke('import-openapi', payload),
   runTests: (payload) => ipcRenderer.invoke('run-tests', payload),
+  cancelRun: () => ipcRenderer.invoke('cancel-run'),
+  // Calls back with each progress event of a run (started, test); returns a function that stops listening.
+  onRunProgress: (callback) => {
+    const listener = (_, item) => callback(item);
+    ipcRenderer.on('run-progress', listener);
+    return () => ipcRenderer.removeListener('run-progress', listener);
+  },
+  previewStep: (payload) => ipcRenderer.invoke('preview-step', payload),
   listTests: (payload) => ipcRenderer.invoke('list-tests', payload),
   getCollection: (payload) => ipcRenderer.invoke('get-collection', payload),
   saveCollectionVariables: (payload) => ipcRenderer.invoke('save-collection-variables', payload),

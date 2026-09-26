@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { methodSupportsBody, toVariableName, yamlPreview } from '../i18n.js';
 import { MethodBadge } from './Badge.jsx';
 import Icon from './Icons.jsx';
+import ResponsePreview from './ResponsePreview.jsx';
 import { VariableInput, VariableTextarea } from './VariableField.jsx';
 
 const METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'];
@@ -326,6 +327,9 @@ function StepCard({
   total,
   open,
   toggle,
+  preview,
+  send,
+  closePreview,
   updateStep,
   removeStep,
   moveStep,
@@ -366,6 +370,22 @@ function StepCard({
           <Icon name={open ? 'chevronDown' : 'chevronRight'} size={15} className="step-chevron" />
         </button>
         <div className="step-tools">
+          {!isInclude && (
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm send-btn"
+              title={t.sendHint}
+              disabled={preview?.loading}
+              onClick={send}
+            >
+              <Icon
+                name={preview?.loading ? 'spinner' : 'send'}
+                size={13}
+                className={preview?.loading ? 'spin' : ''}
+              />{' '}
+              {t.send}
+            </button>
+          )}
           <button
             type="button"
             className="btn-icon"
@@ -528,6 +548,17 @@ function StepCard({
                 </>
               )}
 
+              {preview && (
+                <ResponsePreview
+                  t={t}
+                  step={step}
+                  index={index}
+                  preview={preview}
+                  close={closePreview}
+                  addCheck={(assertion) => patch('assertions', [...step.assertions, assertion])}
+                />
+              )}
+
               <AssertionsEditor t={t} step={step} index={index} {...assertionProps} />
             </>
           )}
@@ -559,6 +590,9 @@ export default function Builder({
   variableNames,
   kind = 'test',
   sharedList = [],
+  runTest,
+  running,
+  previewStep,
 }) {
   const isShared = kind === 'shared';
   // A group cannot include itself; every other group can be included.
@@ -573,6 +607,8 @@ export default function Builder({
     () => new Set(test.steps.length <= 3 ? test.steps.map((_, i) => i) : [0]),
   );
   const [showYaml, setShowYaml] = useState(false);
+  // What each step received when it was last sent, by step index.
+  const [previews, setPreviews] = useState({});
   const previousCount = useRef(test.steps.length);
 
   // A newly added step opens itself; a removed one shifts the open indexes.
@@ -583,7 +619,28 @@ export default function Builder({
     previousCount.current = test.steps.length;
   }, [test.steps.length]);
 
+  // Runs the steps up to `index` as they are in the editor and shows what that step received.
+  const send = async (index) => {
+    setOpen((current) => new Set([...current, index]));
+    setPreviews((current) => ({ ...current, [index]: { loading: true } }));
+    let next;
+    try {
+      next = { data: await previewStep(index) };
+    } catch (error) {
+      next = { error: error.message };
+    }
+    setPreviews((current) => ({ ...current, [index]: next }));
+  };
+  const closePreview = (index) =>
+    setPreviews((current) => {
+      const next = { ...current };
+      delete next[index];
+      return next;
+    });
+
   const remove = (index) => {
+    // Previews belong to step positions, which just changed.
+    setPreviews({});
     setOpen(
       (current) =>
         new Set([...current].filter((i) => i !== index).map((i) => (i > index ? i - 1 : i))),
@@ -591,6 +648,7 @@ export default function Builder({
     removeStep(index);
   };
   const move = (index, direction) => {
+    setPreviews({});
     setOpen((current) => {
       const next = new Set(current);
       const wasOpen = current.has(index);
@@ -632,6 +690,17 @@ export default function Builder({
         >
           <Icon name="code" size={14} /> YAML
         </button>
+        {!isShared && (
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm"
+            disabled={!runTest || running}
+            title={runTest ? t.runTest : t.runTestSaveFirst}
+            onClick={runTest}
+          >
+            <Icon name="play" size={14} /> {t.runTest}
+          </button>
+        )}
         {!isNew && (
           <button type="button" className="btn btn-ghost btn-sm danger" onClick={deleteTest}>
             <Icon name="trash" size={14} /> {t.delete}
@@ -742,6 +811,9 @@ export default function Builder({
             total={test.steps.length}
             open={open.has(index)}
             toggle={() => toggle(index)}
+            preview={previews[index]}
+            send={() => send(index)}
+            closePreview={() => closePreview(index)}
             updateStep={updateStep}
             removeStep={remove}
             moveStep={move}

@@ -132,7 +132,70 @@ function TestRow({ t, test, open, toggle }) {
   );
 }
 
-export default function RunReport({ t, report, running, rawOutput, run, environment }) {
+// While a run is going: a progress bar, each test as it finishes, and a way to stop.
+function RunProgress({ t, progress, cancelRun }) {
+  const finished = progress?.tests || [];
+  const total = progress?.total;
+  const outcomes = finished.map((test) => String(test.outcome || '').toLowerCase());
+  const pct = (outcome) =>
+    total ? (outcomes.filter((item) => item === outcome).length / total) * 100 : 0;
+  return (
+    <div className="page">
+      <div className="run-banner running">
+        <Icon name="spinner" size={22} className="spin" />
+        <div className="run-banner-main">
+          <h2>{t.running}</h2>
+          <p aria-live="polite">
+            {total == null
+              ? t.runningSub
+              : t.progressCount.replace('{done}', finished.length).replace('{total}', total)}
+          </p>
+          <div
+            className="progress-bar"
+            role="progressbar"
+            aria-valuemin={0}
+            aria-valuemax={total || 0}
+            aria-valuenow={finished.length}
+          >
+            <span className="ok" style={{ width: `${pct('passed')}%` }} />
+            <span className="bad" style={{ width: `${pct('failed')}%` }} />
+            <span className="warn" style={{ width: `${pct('error')}%` }} />
+          </div>
+        </div>
+        <button type="button" className="btn btn-secondary" onClick={cancelRun}>
+          <Icon name="stop" size={14} /> {t.cancelRun}
+        </button>
+      </div>
+      {finished.length > 0 && (
+        <ul className="live-results">
+          {finished.map((test, index) => (
+            <li key={`${test.sourceFile}-${index}`}>
+              <StatusIcon outcome={outcomes[index]} />
+              <span className="result-name">{test.name}</span>
+              <span className="spacer" />
+              <span className="mono muted">
+                {formatDuration(new Date(test.completedAt) - new Date(test.startedAt))}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+export default function RunReport({
+  t,
+  report,
+  running,
+  progress,
+  rawOutput,
+  run,
+  runAll,
+  rerunFailed,
+  cancelRun,
+  environment,
+}) {
   const [filter, setFilter] = useState('all');
   const [rawOpen, setRawOpen] = useState(false);
   const [expanded, setExpanded] = useState(
@@ -141,17 +204,7 @@ export default function RunReport({ t, report, running, rawOutput, run, environm
   );
 
   if (running) {
-    return (
-      <div className="page">
-        <div className="run-banner running">
-          <Icon name="spinner" size={22} className="spin" />
-          <div>
-            <h2>{t.running}</h2>
-            <p>{t.runningSub}</p>
-          </div>
-        </div>
-      </div>
-    );
+    return <RunProgress t={t} progress={progress} cancelRun={cancelRun} />;
   }
 
   if (!report) {
@@ -189,7 +242,8 @@ export default function RunReport({ t, report, running, rawOutput, run, environm
   }
 
   const allPassed = report.failed === 0 && report.errors === 0;
-  const bannerTone = allPassed ? 'pass' : report.failed === 0 ? 'warn' : 'fail';
+  let bannerTone = allPassed ? 'pass' : report.failed === 0 ? 'warn' : 'fail';
+  if (report.cancelled) bannerTone = 'warn';
   const visible = report.tests
     .map((test, index) => ({ test, index }))
     .filter(({ test }) => filter === 'all' || test.outcome === filter);
@@ -215,11 +269,27 @@ export default function RunReport({ t, report, running, rawOutput, run, environm
     else if (report.failed === 0) headline = fill(t.someErrors);
     else headline = fill(t.failedAndErrors);
   }
+  if (report.cancelled) headline = t.runCancelled;
+  const notes = [
+    report.cancelled &&
+      t.runCancelledSub
+        .replace('{done}', report.cancelled.done)
+        .replace('{total}', report.cancelled.total),
+    report.scope && t.ranSubset.replace('{count}', report.scope.length),
+  ].filter(Boolean);
 
   return (
     <div className="page">
       <div className={`run-banner ${bannerTone}`}>
-        <StatusIcon outcome={allPassed ? 'passed' : report.failed === 0 ? 'error' : 'failed'} />
+        <StatusIcon
+          outcome={
+            allPassed && !report.cancelled
+              ? 'passed'
+              : report.failed === 0 || report.cancelled
+                ? 'error'
+                : 'failed'
+          }
+        />
         <div className="run-banner-main">
           <h2>{headline}</h2>
           <p>
@@ -227,15 +297,30 @@ export default function RunReport({ t, report, running, rawOutput, run, environm
             {environment ? ` · ${t.environment}: ${environment}` : ''}
             {report.completedAt ? ` · ${report.completedAt}` : ''}
           </p>
+          {notes.map((note) => (
+            <p key={note}>{note}</p>
+          ))}
           <div className="progress-bar" aria-hidden="true">
             <span className="ok" style={{ width: `${passedPct}%` }} />
             <span className="bad" style={{ width: `${failedPct}%` }} />
             <span className="warn" style={{ width: `${errorPct}%` }} />
           </div>
         </div>
-        <button type="button" className="btn btn-secondary" onClick={run}>
-          <Icon name="play" size={14} /> {t.runAgain}
-        </button>
+        <div className="run-banner-actions">
+          {!allPassed && (
+            <button type="button" className="btn btn-secondary" onClick={rerunFailed}>
+              <Icon name="refresh" size={14} /> {t.runFailedAgain}
+            </button>
+          )}
+          <button type="button" className="btn btn-secondary" onClick={run}>
+            <Icon name="play" size={14} /> {t.runAgain}
+          </button>
+          {report.scope && (
+            <button type="button" className="btn btn-ghost" onClick={runAll}>
+              {t.run}
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="stat-row">

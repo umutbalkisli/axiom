@@ -1,3 +1,5 @@
+using YamlDotNet.Serialization;
+
 namespace Axiom.Models;
 
 /// <summary>
@@ -36,6 +38,7 @@ public sealed class SharedStepsDefinition
     /// <summary>
     /// The file the group was loaded from.
     /// </summary>
+    [YamlIgnore]
     public string SourceFile { get; set; } = string.Empty;
 
     /// <summary>

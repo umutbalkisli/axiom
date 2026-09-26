@@ -1,3 +1,7 @@
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
+using System.Threading.Channels;
 using Axiom.Documents;
 using Axiom.Models;
 using Axiom.Parsing;
@@ -12,22 +16,57 @@ using Microsoft.AspNetCore.Hosting.Server.Features;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Options;
+using JsonOptions = Microsoft.AspNetCore.Http.Json.JsonOptions;
 
 namespace Axiom.Hosting;
 
 internal static class HostServerService
 {
-    public static async Task RunAsync(int port, CancellationToken cancellationToken)
+    /// <summary>
+    /// Serves the API on 127.0.0.1:<paramref name="port"/> (0 picks a free port) until shut down. Every request must
+    /// carry <c>Authorization: Bearer &lt;token&gt;</c>: the API reads and writes files and runs tests, so neither another
+    /// local process nor a web page in the user's browser may call it without the token the desktop app chose.
+    /// </summary>
+    public static async Task RunAsync(int port, string token, CancellationToken cancellationToken)
     {
+        await using var app = Build(port, token);
+        await StartAndWaitAsync(app, port, cancellationToken);
+    }
+
+    internal static WebApplication Build(int port, string token)
+    {
+        if (string.IsNullOrWhiteSpace(token))
+        {
+            throw new ArgumentException("A host token is required.", nameof(token));
+        }
+
         var builder = WebApplication.CreateSlimBuilder([]);
         builder.WebHost.UseUrls($"http://127.0.0.1:{port}");
 
         builder.Services.AddAxiomCore();
 
         var app = builder.Build();
-        MapRoutes(app);
+        app.Use(async (context, next) =>
+        {
+            if (!HasToken(context.Request, token))
+            {
+                context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                return;
+            }
 
-        await StartAndWaitAsync(app, port, cancellationToken);
+            await next(context);
+        });
+        MapRoutes(app);
+        return app;
+    }
+
+    private static bool HasToken(HttpRequest request, string token)
+    {
+        const string scheme = "Bearer ";
+        var header = request.Headers.Authorization.ToString();
+        return header.StartsWith(scheme, StringComparison.Ordinal)
+            && CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(header[scheme.Length..]), Encoding.UTF8.GetBytes(token));
     }
 
     private static void MapRoutes(WebApplication app)
@@ -62,6 +101,7 @@ internal static class HostServerService
         app.MapGet("/api/assertions/aggregations", (IEnumerable<IAssertionAggregation> aggregations) =>
             Results.Ok(new { aggregations = aggregations.Select(a => a.Name) }));
         app.MapPost("/api/tests", SaveTestAsync);
+        app.MapPost("/api/tests/preview", PreviewStepAsync);
 
         app.MapGet("/api/shared", (string folderPath, CollectionManagementService manager) =>
             Results.Ok(new { shared = manager.ListShared(folderPath) }));
@@ -290,24 +330,100 @@ internal static class HostServerService
         }
     }
 
-    private static async Task<IResult> RunCollectionAsync(HttpRequest request, string folderPath, CollectionRunner runner, CancellationToken cancellationToken)
+    /// <summary>
+    /// Runs the collection and streams its progress as newline-delimited JSON: <c>started</c> (with the number of
+    /// tests), one <c>test</c> event per finished test, then <c>completed</c> (the full result) or <c>failed</c>.
+    /// Closing the request cancels the run.
+    /// </summary>
+    private static async Task RunCollectionAsync(HttpContext http, string folderPath, CollectionRunner runner, IOptions<JsonOptions> jsonOptions)
     {
+        var cancellationToken = http.RequestAborted;
+        // The body is optional; a chunked request has no Content-Length, so go by its content type.
+        var payload = http.Request.HasJsonContentType() && http.Request.ContentLength != 0
+            ? await http.Request.ReadFromJsonAsync<RunPayload>(cancellationToken)
+            : null;
+
+        http.Response.ContentType = "application/x-ndjson";
+        var events = Channel.CreateUnbounded<object>(new UnboundedChannelOptions { SingleReader = true });
+        var writing = WriteEventsAsync(http.Response, events.Reader, jsonOptions.Value.SerializerOptions, cancellationToken);
         try
         {
-            var payload = request.ContentLength > 0
-                ? await request.ReadFromJsonAsync<RunPayload>(cancellationToken)
-                : null;
-            var result = await runner.RunAsync(folderPath, new RunOptions { LocalSecrets = payload?.LocalSecrets, Environment = payload?.Environment }, cancellationToken);
-            return Results.Ok(new
+            var options = new RunOptions
             {
+                LocalSecrets = payload?.LocalSecrets,
+                Environment = payload?.Environment,
+                Tests = payload?.Tests,
+                OnStarted = total => events.Writer.TryWrite(new { type = "started", total }),
+                OnTestCompleted = test => events.Writer.TryWrite(new { type = "test", test }),
+            };
+            var result = await runner.RunAsync(folderPath, options, cancellationToken);
+            events.Writer.TryWrite(new
+            {
+                type = "completed",
                 exitCode = result.UnsuccessfulCount == 0 ? 0 : 2,
                 report = ReportFormatterService.Format(result),
                 result,
             });
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // The caller went away (the user pressed Cancel); there is no one left to tell.
+        }
         catch (Exception ex)
         {
-            return Results.Problem($"Execution failed: {ex.Message}", statusCode: 500);
+            events.Writer.TryWrite(new { type = "failed", message = $"Execution failed: {ex.Message}" });
+        }
+        finally
+        {
+            events.Writer.Complete();
+        }
+
+        await writing;
+    }
+
+    private static async Task WriteEventsAsync(HttpResponse response, ChannelReader<object> events, JsonSerializerOptions json, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await foreach (var item in events.ReadAllAsync(CancellationToken.None))
+            {
+                await JsonSerializer.SerializeAsync(response.Body, item, item.GetType(), json, cancellationToken);
+                await response.Body.WriteAsync("\n"u8.ToArray(), cancellationToken);
+                await response.Body.FlushAsync(cancellationToken);
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // The caller disconnected.
+        }
+    }
+
+    /// <summary>
+    /// Runs an unsaved test's steps up to one of them and returns what that step received.
+    /// </summary>
+    private static async Task<IResult> PreviewStepAsync(HttpRequest request, string folderPath, CollectionRunner runner, YamlCollectionLoader loader, CancellationToken cancellationToken)
+    {
+        var payload = await request.ReadFromJsonAsync<PreviewPayload>(cancellationToken);
+        if (payload?.Test is null)
+        {
+            return Results.BadRequest(new { message = "Invalid payload." });
+        }
+
+        try
+        {
+            // Through the same YAML a save would write, so the preview runs exactly what will be saved.
+            var sourceName = string.IsNullOrWhiteSpace(payload.Test.FileName) ? "unsaved test" : payload.Test.FileName;
+            var test = loader.ParseTest(CollectionManagementService.ToYaml(payload.Test), sourceName);
+            var preview = await runner.PreviewAsync(folderPath, test, payload.StepIndex, new RunOptions
+            {
+                LocalSecrets = payload.LocalSecrets,
+                Environment = payload.Environment,
+            }, cancellationToken);
+            return Results.Ok(preview);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            return Results.BadRequest(new { message = ex.Message });
         }
     }
 
@@ -330,7 +446,9 @@ internal static class HostServerService
         Dictionary<string, object?> Connections,
         Dictionary<string, SecretReference>? Secrets);
 
-    private sealed record RunPayload(Dictionary<string, string>? LocalSecrets, string? Environment);
+    private sealed record RunPayload(Dictionary<string, string>? LocalSecrets, string? Environment, List<string>? Tests);
+
+    private sealed record PreviewPayload(SaveTestCaseRequest? Test, int StepIndex, Dictionary<string, string>? LocalSecrets, string? Environment);
 
     private sealed record InitCollectionPayload(string CollectionName);
 

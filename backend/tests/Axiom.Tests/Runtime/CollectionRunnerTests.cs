@@ -90,7 +90,7 @@ public class CollectionRunnerTests
     {
         using var env = new EnvironmentScope().Set("AXIOM_RUNNER_TOKEN", "super-secret-token-value");
         using var folder = new TempFolder();
-        folder.Write("collection.yaml", CollectionHeader + "secrets:\n  token: { provider: env, key: AXIOM_RUNNER_TOKEN }\nvariables_note: ignored\n");
+        folder.Write("collection.yaml", CollectionHeader + "secrets:\n  token: { provider: env, key: AXIOM_RUNNER_TOKEN }\n");
         folder.Write("tests/a.test.yaml", """
             name: uses a secret
             steps:
@@ -229,5 +229,137 @@ public class CollectionRunnerTests
     {
         using var folder = new TempFolder();
         await Assert.ThrowsAsync<FileNotFoundException>(() => Run(folder, new StubHandler(_ => Http.Json("{}"))));
+    }
+
+    [Fact]
+    public async Task Only_the_picked_tests_run_by_file_name_or_id()
+    {
+        using var folder = new TempFolder();
+        folder.Write("collection.yaml", CollectionHeader);
+        folder.Write("tests/a.test.yaml", Test("a"));
+        folder.Write("tests/b.test.yaml", Test("b"));
+        folder.Write("tests/c.test.yaml", Test("c"));
+
+        var result = await Run(folder, new StubHandler(_ => Http.Json("{}")), new RunOptions { Tests = ["a.test.yaml", "C"] });
+
+        Assert.Equal(["a", "c"], result.TestCases.Select(t => t.Name));
+    }
+
+    [Fact]
+    public async Task Progress_is_reported_before_the_first_test_and_after_each_one()
+    {
+        using var folder = new TempFolder();
+        folder.Write("collection.yaml", CollectionHeader);
+        folder.Write("tests/a.test.yaml", Test("a"));
+        folder.Write("tests/b.test.yaml", Test("b", expectedStatus: 404));
+        var started = -1;
+        var finished = new System.Collections.Concurrent.ConcurrentBag<string>();
+
+        await Run(folder, new StubHandler(_ => Http.Json("{}")), new RunOptions
+        {
+            OnStarted = total =>
+            {
+                Assert.Empty(finished);
+                started = total;
+            },
+            OnTestCompleted = test => finished.Add(test.Name),
+        });
+
+        Assert.Equal(2, started);
+        Assert.Equal(["a", "b"], finished.Order());
+    }
+
+    [Fact]
+    public async Task Cancelling_stops_the_run_instead_of_reporting_the_running_step_as_broken()
+    {
+        using var folder = new TempFolder();
+        folder.Write("collection.yaml", CollectionHeader);
+        folder.Write("tests/a.test.yaml", Test("a"));
+        using var cancel = new CancellationTokenSource();
+        var reached = new TaskCompletionSource();
+        var handler = new DelayingHandler(async token =>
+        {
+            reached.TrySetResult();
+            await Task.Delay(Timeout.Infinite, token);
+        });
+        await using var services = Build.Services(handler);
+
+        var reported = new List<TestCaseExecutionResult>();
+
+        var run = services.GetRequiredService<CollectionRunner>().RunAsync(folder.Path, new RunOptions { OnTestCompleted = reported.Add }, cancel.Token);
+        await reached.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        await cancel.CancelAsync();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+        Assert.Empty(reported);                    // no "A task was canceled" error result for the interrupted test
+    }
+
+    [Fact]
+    public async Task A_preview_runs_up_to_the_picked_step_and_returns_what_it_received()
+    {
+        using var env = new EnvironmentScope().Set("AXIOM_PREVIEW_TOKEN", "preview-secret-value");
+        using var folder = new TempFolder();
+        folder.Write("collection.yaml", CollectionHeader + "secrets:\n  token: { provider: env, key: AXIOM_PREVIEW_TOKEN }\n");
+        folder.Write("tests/broken.test.yaml", "not_a_key: 1\n");               // other tests are not loaded
+        var test = new Axiom.Parsing.YamlCollectionLoader().ParseTest("""
+            name: draft
+            steps:
+            - { id: first, type: request, method: GET, url: '{{base_url}}/one' }
+            - { id: second, type: request, method: GET, url: '{{base_url}}/two', assert: [ { source: status, operator: '==', expected: 201 } ] }
+            - { id: third, type: request, method: GET, url: '{{base_url}}/three' }
+            """, "unsaved test");
+        var handler = new StubHandler(request => request.Uri.AbsolutePath == "/two"
+            ? Http.Json("{\"echo\":\"preview-secret-value\",\"id\":7}", headers: ("X-Trace", "abc"))
+            : Http.Json("{}"));
+        await using var services = Build.Services(handler);
+
+        var preview = await services.GetRequiredService<CollectionRunner>().PreviewAsync(folder.Path, test, 1, new RunOptions());
+
+        Assert.Equal(["/one", "/two"], handler.Requests.Select(r => r.Uri.AbsolutePath));     // the third step did not run
+        Assert.Equal(["first", "second"], preview.Result.Steps.Select(s => s.Id));
+        Assert.Equal(RunOutcome.Failed, preview.Result.Steps[1].Outcome);                     // its assertions still count
+        var response = Assert.IsType<StepResponse>(preview.Response);
+        Assert.Equal("second", response.StepId);
+        Assert.Equal(200, response.Status);
+        Assert.Equal("abc", response.Headers!["x-trace"]);
+        Assert.Equal("{\"echo\":\"********\",\"id\":7}", response.Body);                     // secrets are masked
+        Assert.False(response.BodyTruncated);
+    }
+
+    [Fact]
+    public async Task A_preview_of_a_sql_step_returns_its_rows()
+    {
+        using var folder = new TempFolder();
+        folder.Write("collection.yaml", CollectionHeader + "connections:\n  db: { provider: sqlite, connection_string: 'Data Source=:memory:' }\n");
+        var test = new Axiom.Parsing.YamlCollectionLoader().ParseTest(
+            "name: draft\nsteps:\n- { id: q, type: db_query, connection: db, sql: 'SELECT 1 AS a UNION ALL SELECT 2' }\n", "unsaved test");
+        await using var services = Build.Services(new StubHandler(_ => Http.Json("{}")));
+
+        var preview = await services.GetRequiredService<CollectionRunner>().PreviewAsync(folder.Path, test, 0, new RunOptions());
+
+        Assert.Equal(2, preview.Response!.RowCount);
+        Assert.Equal([1L, 2L], preview.Response.Rows!.Select(row => row["a"]));
+        Assert.Null(preview.Response.Status);
+    }
+
+    [Fact]
+    public async Task A_preview_of_a_step_that_does_not_exist_is_rejected()
+    {
+        using var folder = new TempFolder();
+        folder.Write("collection.yaml", CollectionHeader);
+        var test = new TestCaseDefinition { Name = "empty" };
+        await using var services = Build.Services(new StubHandler(_ => Http.Json("{}")));
+
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() =>
+            services.GetRequiredService<CollectionRunner>().PreviewAsync(folder.Path, test, 0, new RunOptions()));
+    }
+
+    private sealed class DelayingHandler(Func<CancellationToken, Task> wait) : HttpMessageHandler
+    {
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            await wait(cancellationToken);
+            return Http.Json("{}");
+        }
     }
 }

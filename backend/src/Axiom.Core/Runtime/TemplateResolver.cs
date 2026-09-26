@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 
@@ -29,7 +30,8 @@ public static partial class TemplateResolver
                 throw new InvalidOperationException($"Template variable '{expr}' was not found in the execution context.");
             }
 
-            return resolved.ToString() ?? string.Empty;
+            // Invariant: a number must read the same on every machine (1.5, never 1,5 on a Turkish system).
+            return Convert.ToString(resolved, CultureInfo.InvariantCulture) ?? string.Empty;
         });
     }
 

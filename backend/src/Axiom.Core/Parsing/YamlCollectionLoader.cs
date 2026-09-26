@@ -3,6 +3,7 @@ using Axiom.Models;
 using Microsoft.Data.Sqlite;
 using Axiom.Serialization;
 using Axiom.Validation;
+using YamlDotNet.Core;
 
 namespace Axiom.Parsing;
 
@@ -14,7 +15,14 @@ public sealed class YamlCollectionLoader
     /// <summary>
     /// Loads the collection in <paramref name="folderPath"/>; throws when it is missing or invalid.
     /// </summary>
-    public LoadedCollection Load(string folderPath)
+    public LoadedCollection Load(string folderPath) => Load(folderPath, testFilter: null);
+
+    /// <summary>
+    /// Loads the collection in <paramref name="folderPath"/>, with only the test files whose file name (e.g.
+    /// <c>get-user.test.yaml</c>) passes <paramref name="testFilter"/>; the others are not even parsed, so a broken
+    /// file elsewhere does not stop the tests that were picked. Throws when the collection is missing or invalid.
+    /// </summary>
+    public LoadedCollection Load(string folderPath, Func<string, bool>? testFilter)
     {
         var root = Path.GetFullPath(folderPath);
         var collectionPath = CollectionPaths.CollectionFile(root);
@@ -28,7 +36,7 @@ public sealed class YamlCollectionLoader
         EnsureValidVariableNames(collection.Variables.Keys, collectionPath);
 
         var shared = LoadShared(root);
-        var tests = LoadTests(root);
+        var tests = LoadTests(root, testFilter);
         EnsureIncludesExist(tests, shared);
 
         return new LoadedCollection
@@ -40,7 +48,19 @@ public sealed class YamlCollectionLoader
         };
     }
 
-    private List<TestCaseDefinition> LoadTests(string root)
+    /// <summary>
+    /// Parses a test that is not saved yet (for example one being edited), exactly as if it were loaded from a file
+    /// called <paramref name="sourceName"/>.
+    /// </summary>
+    public TestCaseDefinition ParseTest(string yaml, string sourceName)
+    {
+        var test = Deserialize<TestCaseDefinition>(yaml, sourceName);
+        NormalizeTest(test, sourceName);
+        EnsureValidVariableNames(test.Variables.Keys.Concat(SavedNames(test.Steps)), sourceName);
+        return test;
+    }
+
+    private List<TestCaseDefinition> LoadTests(string root, Func<string, bool>? testFilter)
     {
         var testsPath = CollectionPaths.TestsDirectory(root);
         if (!Directory.Exists(testsPath))
@@ -49,6 +69,7 @@ public sealed class YamlCollectionLoader
         }
 
         return Directory.EnumerateFiles(testsPath, CollectionPaths.TestFilePattern, SearchOption.AllDirectories)
+                        .Where(path => testFilter is null || testFilter(Path.GetFileName(path)))
                         .OrderBy(x => x, StringComparer.OrdinalIgnoreCase)
                         .Select(path =>
                         {
@@ -115,10 +136,21 @@ public sealed class YamlCollectionLoader
         }
     }
 
-    private T DeserializeFile<T>(string path)
+    private static T DeserializeFile<T>(string path) => Deserialize<T>(File.ReadAllText(path), path);
+
+    /// <summary>
+    /// Strict: a key the model does not know is an error that names the file, line and likely intended key.
+    /// </summary>
+    private static T Deserialize<T>(string yaml, string sourceName)
     {
-        var yaml = File.ReadAllText(path);
-        return YamlSerialization.Deserializer.Deserialize<T>(yaml) ?? throw new InvalidOperationException($"YAML could not be parsed: {path}");
+        try
+        {
+            return YamlSerialization.StrictDeserializer.Deserialize<T>(yaml) ?? throw new InvalidOperationException($"{sourceName}: the file is empty.");
+        }
+        catch (YamlException ex)
+        {
+            throw new InvalidOperationException(YamlErrors.Describe(sourceName, ex), ex);
+        }
     }
 
     private static void NormalizeCollection(CollectionDefinition collection, string rootPath)

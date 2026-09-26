@@ -95,4 +95,21 @@ public class TemplateResolverTests
         var vars = Vars(("plain", new LazyJson("hello world")));
         Assert.Equal("hello world", TemplateResolver.ResolveString("{{plain}}", vars));
     }
+
+    [Fact]
+    public void Numbers_are_written_the_same_on_every_machine()
+    {
+        var original = System.Globalization.CultureInfo.CurrentCulture;
+        try
+        {
+            // Turkish writes 1.5 as "1,5"; a URL, header, body or SQL must not change with the machine's settings.
+            System.Globalization.CultureInfo.CurrentCulture = new System.Globalization.CultureInfo("tr-TR");
+
+            Assert.Equal("1.5|2.25", TemplateResolver.ResolveString("{{a}}|{{b}}", Vars(("a", 1.5), ("b", 2.25m))));
+        }
+        finally
+        {
+            System.Globalization.CultureInfo.CurrentCulture = original;
+        }
+    }
 }

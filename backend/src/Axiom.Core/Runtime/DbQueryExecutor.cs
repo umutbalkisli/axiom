@@ -6,11 +6,13 @@ using Axiom.Models;
 namespace Axiom.Runtime;
 
 /// <summary>
-/// Runs SQL through the registered <see cref="IDbConnectionFactory"/> providers and keeps connections open for the duration of a run.
+/// Runs SQL through the registered <see cref="IDbConnectionFactory"/> providers. Connections are pooled per
+/// connection string for the duration of a run: parallel tests query on connections of their own, and a
+/// connection is reused once its query is done.
 /// </summary>
 public sealed class DbQueryExecutor : IDbQueryExecutor, IAsyncDisposable
 {
-    private readonly ConcurrentDictionary<string, Lazy<CachedConnection>> _connections = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, Lazy<ConnectionPool>> _pools = new(StringComparer.Ordinal);
     private readonly Dictionary<string, IDbConnectionFactory> _factories;
 
     /// <summary>
@@ -26,25 +28,18 @@ public sealed class DbQueryExecutor : IDbQueryExecutor, IAsyncDisposable
     /// </summary>
     public async Task<List<Dictionary<string, object?>>> QueryAsync(DbConnectionDefinition connectionDefinition, string sql, CancellationToken cancellationToken)
     {
-        var provider = connectionDefinition.Provider.Trim();
-        var connection = GetOrCreate(provider, connectionDefinition.ConnectionString);
-
-        await connection.Gate.WaitAsync(cancellationToken);
+        var pool = GetPool(connectionDefinition.Provider.Trim(), connectionDefinition.ConnectionString);
+        var connection = await pool.RentAsync(cancellationToken);
         try
         {
-            if (connection.DbConnection.State != ConnectionState.Open)
-            {
-                await connection.DbConnection.OpenAsync(cancellationToken);
-            }
-
-            await using var command = connection.DbConnection.CreateCommand();
+            await using var command = connection.CreateCommand();
             command.CommandText = sql;
             await using var reader = await command.ExecuteReaderAsync(cancellationToken);
             return await ReadAllRowsAsync(reader, cancellationToken);
         }
         finally
         {
-            connection.Gate.Release();
+            pool.Return(connection);
         }
     }
 
@@ -53,15 +48,18 @@ public sealed class DbQueryExecutor : IDbQueryExecutor, IAsyncDisposable
     /// </summary>
     public async ValueTask DisposeAsync()
     {
-        foreach (var connection in _connections.Values)
+        foreach (var pool in _pools.Values)
         {
-            await connection.Value.DisposeAsync();
+            if (pool.IsValueCreated)
+            {
+                await pool.Value.DisposeAsync();
+            }
         }
 
-        _connections.Clear();
+        _pools.Clear();
     }
 
-    private CachedConnection GetOrCreate(string provider, string connectionString)
+    private ConnectionPool GetPool(string provider, string connectionString)
     {
         if (!_factories.TryGetValue(provider, out var factory))
         {
@@ -69,9 +67,9 @@ public sealed class DbQueryExecutor : IDbQueryExecutor, IAsyncDisposable
         }
 
         var key = $"{factory.Provider}\0{connectionString}";
-        return _connections.GetOrAdd(
+        return _pools.GetOrAdd(
             key,
-            static (_, state) => new Lazy<CachedConnection>(() => new CachedConnection(state.factory.Create(state.connectionString))),
+            static (_, state) => new Lazy<ConnectionPool>(() => new ConnectionPool(state.factory, state.connectionString)),
             (factory, connectionString)).Value;
     }
 
@@ -90,5 +88,68 @@ public sealed class DbQueryExecutor : IDbQueryExecutor, IAsyncDisposable
         }
 
         return rows;
+    }
+
+    /// <summary>
+    /// The open connections of one connection string. A caller rents an idle connection, or a new one when all are
+    /// busy, and returns it after its query. A database that cannot be shared across connections gets exactly one,
+    /// which callers take turns on.
+    /// </summary>
+    private sealed class ConnectionPool(IDbConnectionFactory factory, string connectionString) : IAsyncDisposable
+    {
+        private readonly ConcurrentBag<DbConnection> _idle = [];
+        private readonly ConcurrentBag<DbConnection> _all = [];
+        private readonly SemaphoreSlim? _turn = factory.SupportsParallelConnections(connectionString) ? null : new SemaphoreSlim(1, 1);
+
+        public async Task<DbConnection> RentAsync(CancellationToken cancellationToken)
+        {
+            if (_turn is not null)
+            {
+                await _turn.WaitAsync(cancellationToken);
+            }
+
+            try
+            {
+                if (!_idle.TryTake(out var connection))
+                {
+                    connection = factory.Create(connectionString);
+                    _all.Add(connection);
+                }
+
+                if (connection.State == ConnectionState.Broken)
+                {
+                    // Left broken by an earlier query (lost link, interrupted command): reopen it.
+                    await connection.CloseAsync();
+                }
+
+                if (connection.State != ConnectionState.Open)
+                {
+                    await connection.OpenAsync(cancellationToken);
+                }
+
+                return connection;
+            }
+            catch
+            {
+                _turn?.Release();
+                throw;
+            }
+        }
+
+        public void Return(DbConnection connection)
+        {
+            _idle.Add(connection);
+            _turn?.Release();
+        }
+
+        public async ValueTask DisposeAsync()
+        {
+            foreach (var connection in _all)
+            {
+                await connection.DisposeAsync();
+            }
+
+            _turn?.Dispose();
+        }
     }
 }

@@ -1,3 +1,5 @@
+using System.Globalization;
+using System.Security.Cryptography;
 using System.Text.Json;
 using Axiom.Hosting;
 using Axiom.Runtime;
@@ -9,10 +11,16 @@ namespace Axiom;
 
 internal static class ProgramEntry
 {
+    private const string HostTokenVariable = "AXIOM_HOST_TOKEN";
+
     private static bool isJsonResponseMode = false;
 
     public static async Task<int> RunAsync(string[] args)
     {
+        // Reports, JSON and HTTP bodies must not depend on the machine's regional settings.
+        CultureInfo.DefaultThreadCurrentCulture = CultureInfo.InvariantCulture;
+        CultureInfo.CurrentCulture = CultureInfo.InvariantCulture;
+
         var parsed = ParseCliArguments(args);
         isJsonResponseMode = parsed.JsonMode;
 
@@ -127,7 +135,7 @@ internal static class ProgramEntry
                 continue;
             }
 
-            if (index + 1 >= args.Length || !int.TryParse(args[index + 1], out port) || port <= 0)
+            if (index + 1 >= args.Length || !int.TryParse(args[index + 1], out port) || port is < 0 or > 65535)
             {
                 return await WriteUsageAndReturnAsync("Usage: axiom serve [--port <number>]");
             }
@@ -135,7 +143,15 @@ internal static class ProgramEntry
             index += 2;
         }
 
-        await HostServerService.RunAsync(port, CancellationToken.None);
+        // The desktop app passes its own token; started by hand, the host makes one up and prints it.
+        var token = Environment.GetEnvironmentVariable(HostTokenVariable);
+        if (string.IsNullOrWhiteSpace(token))
+        {
+            token = RandomNumberGenerator.GetHexString(64, lowercase: true);
+            Console.WriteLine($"AXIOM_HOST_TOKEN {token}");
+        }
+
+        await HostServerService.RunAsync(port, token, CancellationToken.None);
         return 0;
     }
 
@@ -143,7 +159,7 @@ internal static class ProgramEntry
     {
         Console.WriteLine("Axiom CLI");
         Console.WriteLine("  axiom run <collection-folder> [--env <name>] [--json]");
-        Console.WriteLine("  axiom serve [--port <number>]");
+        Console.WriteLine("  axiom serve [--port <number>]   (0 picks a free port; requests need 'Authorization: Bearer $AXIOM_HOST_TOKEN')");
     }
 
     private static async Task<int> WriteUsageAndReturnAsync(string message)

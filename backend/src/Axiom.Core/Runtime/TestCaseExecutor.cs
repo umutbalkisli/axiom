@@ -19,6 +19,18 @@ public sealed class TestCaseExecutor(StepRunner runner)
         TestCaseDefinition testCase,
         RunSecrets secrets,
         SharedStepsLibrary shared,
+        CancellationToken cancellationToken) =>
+        (await ExecuteWithVariablesAsync(collection, testCase, secrets, shared, cancellationToken)).Result;
+
+    /// <summary>
+    /// Runs <paramref name="testCase"/> like <see cref="ExecuteAsync"/>, and also returns the variables as the last
+    /// step left them (including what each step received, such as <c>&lt;step_id&gt;_response_text</c>).
+    /// </summary>
+    public async Task<(TestCaseExecutionResult Result, IReadOnlyDictionary<string, object?> Variables)> ExecuteWithVariablesAsync(
+        CollectionDefinition collection,
+        TestCaseDefinition testCase,
+        RunSecrets secrets,
+        SharedStepsLibrary shared,
         CancellationToken cancellationToken)
     {
         var startedAt = DateTimeOffset.UtcNow;
@@ -30,7 +42,7 @@ public sealed class TestCaseExecutor(StepRunner runner)
         }
         catch (Exception ex)
         {
-            return new TestCaseExecutionResult
+            var failed = new TestCaseExecutionResult
             {
                 Name = testCase.Name,
                 SourceFile = testCase.SourceFile,
@@ -49,6 +61,7 @@ public sealed class TestCaseExecutor(StepRunner runner)
                 StartedAt = startedAt,
                 CompletedAt = DateTimeOffset.UtcNow,
             };
+            return (failed, new Dictionary<string, object?>());
         }
 
         var context = new StepExecutionContext
@@ -61,7 +74,7 @@ public sealed class TestCaseExecutor(StepRunner runner)
         };
         var stepResults = await runner.RunAsync(context, testCase.Steps, cancellationToken);
 
-        return new TestCaseExecutionResult
+        var result = new TestCaseExecutionResult
         {
             Name = testCase.Name,
             SourceFile = testCase.SourceFile,
@@ -69,5 +82,6 @@ public sealed class TestCaseExecutor(StepRunner runner)
             StartedAt = startedAt,
             CompletedAt = DateTimeOffset.UtcNow,
         };
+        return (result, variables);
     }
 }

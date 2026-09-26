@@ -39,7 +39,7 @@ function Tabs({ tabs, active, onChange }) {
   );
 }
 
-function TestsTab({ t, tests, runStatus, openTest, newTest, openImport }) {
+function TestsTab({ t, tests, runStatus, openTest, runTest, running, newTest, openImport }) {
   const groups = groupByEndpoint(tests, t);
   if (!tests.length) {
     return (
@@ -72,19 +72,30 @@ function TestsTab({ t, tests, runStatus, openTest, newTest, openImport }) {
             </div>
             <div className="list-card">
               {group.items.map((item) => (
-                <button
-                  type="button"
-                  key={item.fileName}
-                  className="list-row"
-                  onClick={() => openTest(item.fileName)}
-                >
-                  <span className={`run-dot ${runStatus[item.fileName] || ''}`} />
-                  <span className="list-row-main">
-                    <span className="list-row-title">{item.name}</span>
-                    <span className="mono muted">{item.fileName}</span>
-                  </span>
-                  <Icon name="chevronRight" size={14} />
-                </button>
+                <div className="list-row-line" key={item.fileName}>
+                  <button
+                    type="button"
+                    className="list-row"
+                    onClick={() => openTest(item.fileName)}
+                  >
+                    <span className={`run-dot ${runStatus[item.fileName] || ''}`} />
+                    <span className="list-row-main">
+                      <span className="list-row-title">{item.name}</span>
+                      <span className="mono muted">{item.fileName}</span>
+                    </span>
+                    <Icon name="chevronRight" size={14} />
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-icon list-row-run"
+                    title={t.runTest}
+                    aria-label={`${t.runTest}: ${item.name}`}
+                    disabled={running}
+                    onClick={() => runTest(item.fileName)}
+                  >
+                    <Icon name="play" size={13} />
+                  </button>
+                </div>
               ))}
             </div>
           </section>
@@ -543,6 +554,8 @@ export default function Collection({
   tests,
   runStatus,
   openTest,
+  runTest,
+  running,
   newTest,
   shared,
   openShared,
@@ -597,6 +610,8 @@ export default function Collection({
             tests={tests}
             runStatus={runStatus}
             openTest={openTest}
+            runTest={runTest}
+            running={running}
             newTest={newTest}
             openImport={openImport}
           />

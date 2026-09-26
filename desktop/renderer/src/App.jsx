@@ -105,6 +105,8 @@ export default function App() {
   const [report, setReport] = useState(null);
   const [rawOutput, setRawOutput] = useState('');
   const [running, setRunning] = useState(false);
+  // While a run is going: how many tests it has and the results that have come in so far.
+  const [progress, setProgress] = useState(null);
   const [toast, setToast] = useState(null);
   const [recent, setRecent] = useState(readRecent);
   const toastTimer = useRef(null);
@@ -413,27 +415,84 @@ export default function App() {
   const environments = useMemo(() => environmentNames(collection.secrets), [collection.secrets]);
   const selectedEnvironment = environments.includes(environment) ? environment : '';
 
-  const run = async () => {
+  // Runs the whole collection, or only `selected` (a list of test file names). Results stream in as tests finish.
+  const run = async (selected) => {
+    const only = Array.isArray(selected) && selected.length ? selected : null;
     if (dirty && !window.confirm(t.discardConfirm)) return;
     setView('run');
     setRunning(true);
+    const startedAt = new Date().toISOString();
+    const finished = [];
+    let total = null;
+    setProgress({ total: null, tests: [] });
+    const stopListening = api.onRunProgress((item) => {
+      if (item.type === 'started') {
+        total = item.total;
+        setProgress((current) => ({ ...current, total: item.total }));
+      } else if (item.type === 'test') {
+        finished.push(item.test);
+        setProgress((current) => ({ ...current, tests: [...current.tests, item.test] }));
+      }
+    });
     try {
       const result = await api.runTests({
         folderPath: folder,
         environment: selectedEnvironment || null,
+        tests: only,
       });
+      if (result.cancelled) {
+        // Keep what finished before the user cancelled.
+        const partial = {
+          testCases: [...finished].sort((a, b) => a.sourceFile.localeCompare(b.sourceFile)),
+          startedAt,
+          completedAt: new Date().toISOString(),
+        };
+        setRawOutput('');
+        setReport({
+          ...buildReport(partial, tests),
+          cancelled: { done: finished.length, total: total ?? finished.length },
+          scope: only,
+          stamp: Date.now(),
+        });
+        return;
+      }
       setRawOutput([result.stdout, result.stderr].filter(Boolean).join('\n').trim());
       setReport(
         result.result
-          ? { ...buildReport(result.result, tests), stamp: Date.now() }
+          ? { ...buildReport(result.result, tests), scope: only, stamp: Date.now() }
           : { error: t.noOutput },
       );
     } catch (error) {
-      setReport({ error: error.message, stamp: Date.now() });
+      setReport({ error: error.message, scope: only, stamp: Date.now() });
     } finally {
+      stopListening();
       setRunning(false);
+      setProgress(null);
     }
   };
+  const cancelRun = () => api.cancelRun();
+  const rerunFailed = () =>
+    run(
+      (report?.tests || [])
+        .filter((item) => item.outcome !== 'passed')
+        .map((item) => item.fileName),
+    );
+  // Runs the builder's steps up to `stepIndex` as they are now (saved or not) and returns what that step received.
+  const previewStep = (stepIndex) =>
+    api.previewStep({
+      folderPath: folder,
+      environment: selectedEnvironment || null,
+      stepIndex,
+      test: {
+        fileName: activeFile,
+        name: test.name || 'unsaved test',
+        description: test.description,
+        method: test.method,
+        endpoint: test.endpoint,
+        variables: test.variables || {},
+        steps: toYamlSteps(test.steps),
+      },
+    });
   const runStatus = useMemo(() => {
     const map = {};
     (report?.tests || []).forEach((item) => {
@@ -590,7 +649,7 @@ export default function App() {
                 type="button"
                 className="btn btn-primary run-btn"
                 disabled={running}
-                onClick={run}
+                onClick={() => run()}
               >
                 <Icon
                   name={running ? 'spinner' : 'play'}
@@ -637,6 +696,8 @@ export default function App() {
               tests={tests}
               runStatus={runStatus}
               openTest={openTest}
+              runTest={(fileName) => run([fileName])}
+              running={running}
               newTest={newTest}
               shared={shared}
               openShared={openShared}
@@ -660,6 +721,9 @@ export default function App() {
               isNew={!activeFile}
               saveTest={saveTest}
               deleteTest={deleteTest}
+              runTest={editKind === 'test' && activeFile ? () => run([activeFile]) : null}
+              running={running}
+              previewStep={previewStep}
               back={backFromBuilder}
               kind={editKind}
               sharedList={shared}
@@ -684,8 +748,12 @@ export default function App() {
               t={t}
               report={report}
               running={running}
+              progress={progress}
               rawOutput={rawOutput}
-              run={run}
+              run={() => run(report?.scope)}
+              runAll={() => run()}
+              rerunFailed={rerunFailed}
+              cancelRun={cancelRun}
               environment={selectedEnvironment}
             />
           )}

@@ -108,6 +108,9 @@ const PATHS = {
     </>
   ),
   swap: <path d="M7 4L3 8l4 4M3 8h14M17 20l4-4-4-4M21 16H7" />,
+  send: <path d="M21 3L10 14M21 3l-7 18-4-7-7-4 18-7z" />,
+  stop: <rect x="6" y="6" width="12" height="12" rx="2" />,
+  refresh: <path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7" />,
 };
 
 export default function Icon({ name, size = 16, className = '', ...rest }) {

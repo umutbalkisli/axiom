@@ -345,3 +345,148 @@ textarea.var-field-input {
 .var-field:has(.var-field-input:disabled) {
   opacity: 0.55;
 }
+
+/* ---------- Step preview (Send) ----------
+   What a step received, shown inside its card. Values are buttons:
+   clicking one adds a check for it. */
+
+.send-btn {
+  margin-right: 4px;
+  color: var(--accent);
+}
+.response-panel {
+  margin-top: 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--accent-border);
+  border-radius: var(--radius);
+  background: var(--canvas-subtle);
+}
+.response-panel > .section-head {
+  margin-bottom: 8px;
+}
+.response-panel .error-box {
+  margin-bottom: 8px;
+}
+.response-panel .assertion-list.compact {
+  margin: 0 0 10px;
+}
+.response-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.spacer-left {
+  margin-left: auto;
+}
+.chip-button {
+  cursor: pointer;
+}
+.chip-button:hover {
+  border-color: var(--accent-border);
+  color: var(--accent);
+}
+.json-tree,
+.response-text {
+  max-height: 420px;
+  overflow: auto;
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border-muted);
+  border-radius: var(--radius-sm);
+  background: var(--canvas);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.55;
+}
+.response-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.json-tree + .json-tree,
+.json-tree + .response-text,
+.json-tree + .rows-table-wrap {
+  margin-top: 8px;
+}
+.json-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  white-space: nowrap;
+}
+.json-toggle,
+.json-value,
+.json-action {
+  padding: 0 3px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+}
+.json-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  cursor: pointer;
+}
+button.json-value {
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+button.json-value:hover,
+.json-action:hover {
+  background: var(--accent-subtle);
+  outline: 1px solid var(--accent-border);
+}
+.json-action {
+  color: var(--accent);
+  font-family: var(--font-sans);
+  font-size: 11.5px;
+  cursor: pointer;
+}
+.json-key {
+  color: var(--fg-muted);
+}
+.json-string {
+  color: var(--success);
+}
+.json-number {
+  color: var(--accent);
+}
+.json-boolean,
+.json-null {
+  color: var(--attention);
+}
+.rows-table-wrap {
+  max-height: 420px;
+  overflow: auto;
+  border: 1px solid var(--border-muted);
+  border-radius: var(--radius-sm);
+  background: var(--canvas);
+}
+.rows-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+.rows-table th,
+.rows-table td {
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border-muted);
+  text-align: left;
+  white-space: nowrap;
+}
+.rows-table th {
+  position: sticky;
+  top: 0;
+  background: var(--canvas-subtle);
+  color: var(--fg-muted);
+  font-weight: 600;
+}

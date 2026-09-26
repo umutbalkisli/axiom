@@ -42,6 +42,11 @@ public sealed class StepRunner
                     ? StepResults.Error(step, $"Unsupported step type '{step.Type}'")
                     : await executor.ExecuteAsync(context, step, cts.Token);
             }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                // The whole run was cancelled (not this step's timeout): stop, rather than report the step as broken.
+                throw;
+            }
             catch (Exception ex)
             {
                 result = StepResults.Error(step, ex.Message);

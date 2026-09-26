@@ -968,6 +968,38 @@ pre {
 .list-row:last-child {
   border-bottom: none;
 }
+/* A test row with its own run button beside it (a button cannot sit inside another button). */
+.list-row-line {
+  display: flex;
+  align-items: center;
+  border-bottom: 1px solid var(--border-muted);
+}
+.list-row-line:last-child {
+  border-bottom: none;
+}
+.list-row-line:hover {
+  background: var(--canvas-subtle);
+}
+.list-row-line > .list-row {
+  flex: 1;
+  min-width: 0;
+  border-bottom: none;
+}
+.list-row-line > .list-row:hover {
+  background: transparent;
+}
+.list-row-run {
+  margin-right: 10px;
+  color: var(--fg-subtle);
+  opacity: 0;
+}
+.list-row-line:hover .list-row-run,
+.list-row-run:focus-visible {
+  opacity: 1;
+}
+.list-row-run:hover {
+  color: var(--accent);
+}
 .list-row:hover {
   background: var(--canvas-subtle);
 }

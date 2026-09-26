@@ -1,10 +1,14 @@
 const { app, BrowserWindow, dialog, ipcMain, safeStorage } = require('electron');
 const { spawn } = require('node:child_process');
+const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const HOST_PORT = 50743;
+// The host listens on a free port and only answers requests that carry this token, so neither another
+// program on this machine nor a web page in a browser can use it to read files or run tests.
+const HOST_TOKEN = crypto.randomBytes(32).toString('hex');
 let hostProcess = null;
+let activeRun = null;
 let hostReadyPromise = null;
 let hostBaseUrl = null;
 
@@ -81,24 +85,63 @@ ipcMain.handle('import-openapi', async (_, payload) => {
   );
 });
 
-ipcMain.handle('run-tests', async (_, payload) => {
-  const data = await hostRequest(
+// Streams the run: every event but the last is forwarded to the renderer as 'run-progress'.
+ipcMain.handle('run-tests', async (event, payload) => {
+  activeRun?.abort();
+  const controller = new AbortController();
+  activeRun = controller;
+  let completed = null;
+  try {
+    const response = await hostFetch(
+      'POST',
+      '/api/run',
+      { folderPath: payload.folderPath },
+      {
+        localSecrets: readLocalSecrets(payload.folderPath),
+        environment: payload.environment || null,
+        tests: payload.tests?.length ? payload.tests : null,
+      },
+      controller.signal,
+    );
+    for await (const item of readJsonLines(response.body)) {
+      if (item.type === 'failed') throw new Error(item.message);
+      if (item.type === 'completed') completed = item;
+      else if (!event.sender.isDestroyed()) event.sender.send('run-progress', item);
+    }
+  } catch (error) {
+    if (controller.signal.aborted) return { cancelled: true };
+    throw error;
+  } finally {
+    if (activeRun === controller) activeRun = null;
+  }
+
+  if (!completed) throw new Error('The run ended without a result.');
+  return {
+    exitCode: completed.exitCode,
+    stdout: completed.report || '',
+    stderr: '',
+    result: completed.result || null,
+  };
+});
+
+// Closing the request cancels the run on the host.
+ipcMain.handle('cancel-run', async () => {
+  activeRun?.abort();
+});
+
+ipcMain.handle('preview-step', async (_, payload) =>
+  hostRequest(
     'POST',
-    '/api/run',
+    '/api/tests/preview',
     { folderPath: payload.folderPath },
     {
+      test: payload.test,
+      stepIndex: payload.stepIndex,
       localSecrets: readLocalSecrets(payload.folderPath),
       environment: payload.environment || null,
     },
-  );
-
-  return {
-    exitCode: data.exitCode,
-    stdout: data.report || '',
-    stderr: '',
-    result: data.result || null,
-  };
-});
+  ),
+);
 
 ipcMain.handle('list-tests', async (_, payload) => {
   return hostRequest('GET', '/api/tests', {
@@ -285,6 +328,13 @@ function readLocalSecrets(folderPath) {
 }
 
 async function hostRequest(method, route, query, body) {
+  const response = await hostFetch(method, route, query, body);
+  const text = await response.text();
+  return text ? safeJsonParse(text) : null;
+}
+
+// Sends an authenticated request to the host and throws its error message when it does not succeed.
+async function hostFetch(method, route, query, body, signal) {
   const baseUrl = await ensureHostRunning();
   const params = new URLSearchParams(query || {});
   const url = params.toString() ? `${baseUrl}${route}?${params.toString()}` : `${baseUrl}${route}`;
@@ -292,20 +342,40 @@ async function hostRequest(method, route, query, body) {
   const response = await fetch(url, {
     method,
     headers: {
+      authorization: `Bearer ${HOST_TOKEN}`,
       'content-type': 'application/json',
     },
     body: body === undefined ? undefined : JSON.stringify(body),
+    signal,
   });
 
-  const text = await response.text();
-  const data = text ? safeJsonParse(text) : null;
-
   if (!response.ok) {
-    const message = formatHostError(data) || text || `${response.status} ${response.statusText}`;
+    const text = await response.text();
+    const message =
+      formatHostError(text ? safeJsonParse(text) : null) ||
+      text ||
+      `${response.status} ${response.statusText}`;
     throw new Error(message);
   }
 
-  return data;
+  return response;
+}
+
+// Parses a newline-delimited JSON stream, yielding each object as soon as its line is complete.
+async function* readJsonLines(stream) {
+  const decoder = new TextDecoder();
+  let buffer = '';
+  for await (const chunk of stream) {
+    buffer += decoder.decode(chunk, { stream: true });
+    let newline = buffer.indexOf('\n');
+    while (newline >= 0) {
+      const line = buffer.slice(0, newline).trim();
+      buffer = buffer.slice(newline + 1);
+      if (line) yield JSON.parse(line);
+      newline = buffer.indexOf('\n');
+    }
+  }
+  if (buffer.trim()) yield JSON.parse(buffer);
 }
 
 async function ensureHostRunning() {
@@ -333,7 +403,7 @@ function startHostProcess() {
       '--',
       'serve',
       '--port',
-      String(HOST_PORT),
+      '0',
     ];
 
     const child = spawn(resolveDotnetPath(), args, {
@@ -342,6 +412,7 @@ function startHostProcess() {
       env: {
         ...process.env,
         DOTNET_NOLOGO: '1',
+        AXIOM_HOST_TOKEN: HOST_TOKEN,
       },
     });
 
