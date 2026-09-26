@@ -530,6 +530,10 @@ export default function App() {
               removeAssertion={removeAssertion}
               aggregations={aggregations}
               connectionNames={Object.keys(collection.connections || {})}
+              variableNames={[
+                ...Object.keys(collection.variables || {}),
+                ...Object.keys(test.variables || {}),
+              ].filter(Boolean)}
             />
           )}
           {view === 'run' && (

@@ -123,6 +123,9 @@ export const strings = {
     addAssertion: 'Add assertion',
     assertionCheck: 'Check',
     assertionValue: 'status, body.items.0.name …',
+    sourceResult: 'step result',
+    sourceSaved: 'saved result',
+    sourceVariable: 'variable',
     aggregation: 'Aggregation',
     aggregationNone: 'none',
     aggregationHint:
@@ -287,6 +290,9 @@ export const strings = {
     addAssertion: 'Doğrulama ekle',
     assertionCheck: 'Kontrol',
     assertionValue: 'status, body.items.0.name …',
+    sourceResult: 'adım sonucu',
+    sourceSaved: 'kaydedilen sonuç',
+    sourceVariable: 'değişken',
     aggregation: 'Toplulaştırma',
     aggregationNone: 'yok',
     aggregationHint:

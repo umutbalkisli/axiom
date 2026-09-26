@@ -76,16 +76,21 @@ function AssertionsEditor({
   index,
   aggregations,
   savedNames,
+  variableNames,
   addAssertion,
   updateAssertion,
   removeAssertion,
 }) {
+  // Everything an assertion can read: this step's own result, results saved by steps before it
+  // (and by this step itself), and the collection / test variables.
   const sources = [
     ...(step.type === 'request'
       ? ['status', 'duration_ms', 'body']
-      : ['row_count', 'duration_ms', 'rows']),
-    ...savedNames,
-  ];
+      : ['row_count', 'duration_ms', 'rows']
+    ).map((name) => [name, t.sourceResult]),
+    ...savedNames.map((name) => [name, t.sourceSaved]),
+    ...variableNames.map((name) => [name, t.sourceVariable]),
+  ].filter(([name], position, all) => all.findIndex(([other]) => other === name) === position);
   const listId = `assertion-${index}-sources`;
   return (
     <section className="assertions">
@@ -95,8 +100,8 @@ function AssertionsEditor({
         </h4>
       </div>
       <datalist id={listId}>
-        {sources.map((name) => (
-          <option key={name} value={name} />
+        {sources.map(([name, label]) => (
+          <option key={name} value={name} label={label} />
         ))}
       </datalist>
       {step.assertions.length === 0 ? (
@@ -406,6 +411,7 @@ export default function Builder({
   removeAssertion,
   aggregations,
   connectionNames,
+  variableNames,
 }) {
   const [open, setOpen] = useState(
     () => new Set(test.steps.length <= 3 ? test.steps.map((_, i) => i) : [0]),
@@ -560,9 +566,10 @@ export default function Builder({
             updateAssertion={updateAssertion}
             removeAssertion={removeAssertion}
             savedNames={test.steps
-              .slice(0, index)
+              .slice(0, index + 1)
               .map((previous) => previous.save_as)
               .filter(Boolean)}
+            variableNames={variableNames}
           />
         ))}
         <div className="add-step">
