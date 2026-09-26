@@ -12,5 +12,8 @@ public interface IDbConnectionFactory
     /// </summary>
     string Provider { get; }
 
+    /// <summary>
+    /// Creates a connection for <paramref name="connectionString"/>.
+    /// </summary>
     DbConnection Create(string connectionString);
 }

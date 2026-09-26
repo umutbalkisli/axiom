@@ -3,12 +3,27 @@ using Axiom.Models;
 
 namespace Axiom.Runtime;
 
+/// <summary>
+/// Creates the executor.
+/// </summary>
+/// <summary>
+/// Runs a <c>db_query</c> step: executes SQL and checks assertions on the rows.
+/// </summary>
 public sealed class DbQueryStepExecutor(IDbQueryExecutor dbQueryExecutor, AssertionEngine assertionEngine) : IStepExecutor
 {
+    /// <summary>
+    /// The step type this executor handles.
+    /// </summary>
     public const string StepType = "db_query";
 
+    /// <summary>
+    /// The step type this executor handles.
+    /// </summary>
     public string Type => StepType;
 
+    /// <summary>
+    /// Runs the query and evaluates the step's assertions on <c>row_count</c>, <c>rows</c> and <c>duration_ms</c>.
+    /// </summary>
     public async Task<StepExecutionResult> ExecuteAsync(StepExecutionContext context, StepDefinition step, CancellationToken cancellationToken)
     {
         var variables = context.Variables;

@@ -7,12 +7,18 @@ namespace Axiom.Secrets;
 /// </summary>
 public interface ISecretProvider
 {
-    /// <summary>The <c>provider</c> value used in a collection's <c>secrets</c> section (case-insensitive).</summary>
+    /// <summary>
+    /// The <c>provider</c> value used in a collection's <c>secrets</c> section (case-insensitive).
+    /// </summary>
     string Name { get; }
 
-    /// <summary>Describes the expected <c>key</c> format, shown as a hint in the UI.</summary>
+    /// <summary>
+    /// Describes the expected <c>key</c> format, shown as a hint in the UI.
+    /// </summary>
     string KeyFormat { get; }
 
-    /// <summary>Returns the secret value, or null when it does not exist. Throws when the store is misconfigured or unreachable.</summary>
+    /// <summary>
+    /// Returns the secret value, or null when it does not exist. Throws when the store is misconfigured or unreachable.
+    /// </summary>
     Task<string?> GetSecretAsync(string key, CancellationToken cancellationToken);
 }

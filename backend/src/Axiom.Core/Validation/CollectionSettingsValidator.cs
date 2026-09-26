@@ -3,8 +3,14 @@ using Axiom.Models;
 
 namespace Axiom.Validation;
 
+/// <summary>
+/// Validates variables, connections and secret references before they are saved.
+/// </summary>
 public static partial class CollectionSettingsValidator
 {
+    /// <summary>
+    /// Checks variable names.
+    /// </summary>
     public static List<FieldError> ValidateVariables(Dictionary<string, object?> variables) =>
         variables.Keys
             .Select(VariableName.Check)
@@ -12,9 +18,15 @@ public static partial class CollectionSettingsValidator
             .Select(problem => new FieldError("variables", problem))
             .ToList();
 
+    /// <summary>
+    /// Checks that every connection has a name.
+    /// </summary>
     public static List<FieldError> ValidateConnections(Dictionary<string, object?> connections) =>
         ValidateKeys(connections.Keys, "connections", "Connection name cannot be empty.");
 
+    /// <summary>
+    /// Checks secret names, providers, keys and environment overrides.
+    /// </summary>
     public static List<FieldError> ValidateSecrets(Dictionary<string, SecretReference> secrets)
     {
         var errors = new List<FieldError>();

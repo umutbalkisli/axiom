@@ -7,7 +7,13 @@ namespace Axiom.Validation;
 /// </summary>
 public interface IStepValidator
 {
+    /// <summary>
+    /// The step type this validator checks.
+    /// </summary>
     string StepType { get; }
 
+    /// <summary>
+    /// Returns the problems in <paramref name="step"/>; <paramref name="fieldPrefix"/> is prepended to field names.
+    /// </summary>
     IEnumerable<FieldError> Validate(StepDocument step, string fieldPrefix);
 }

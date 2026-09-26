@@ -2,16 +2,24 @@ using Axiom.Models;
 
 namespace Axiom.Runtime;
 
-/// <summary>Runs a list of steps in order with per-step timeouts, stopping at the first failure. Used for tests and for shared step groups.</summary>
+/// <summary>
+/// Runs a list of steps in order with per-step timeouts, stopping at the first failure. Used for tests and for shared step groups.
+/// </summary>
 public sealed class StepRunner
 {
     private readonly Dictionary<string, IStepExecutor> _stepExecutors;
 
+    /// <summary>
+    /// Creates a runner that dispatches steps to <paramref name="stepExecutors"/> by type.
+    /// </summary>
     public StepRunner(IEnumerable<IStepExecutor> stepExecutors)
     {
         _stepExecutors = stepExecutors.ToDictionary(e => e.Type, StringComparer.OrdinalIgnoreCase);
     }
 
+    /// <summary>
+    /// Runs <paramref name="steps"/> in order, stopping at the first one that does not pass. Each step gets the collection's step timeout.
+    /// </summary>
     public async Task<List<StepExecutionResult>> RunAsync(StepExecutionContext context, IReadOnlyList<StepDefinition> steps, CancellationToken cancellationToken)
     {
         var results = new List<StepExecutionResult>(steps.Count);

@@ -11,9 +11,14 @@ public sealed class LazyJson(string text, IReadOnlyDictionary<string, object?>? 
 {
     private readonly Lazy<JsonNode?> _node = new(() => Parse(text), LazyThreadSafetyMode.ExecutionAndPublication);
 
+    /// <summary>
+    /// The raw response text.
+    /// </summary>
     public string Text => text;
 
-    /// <summary>The name that opens the response-level members of a saved result: <c>my_response.@http.headers</c>.</summary>
+    /// <summary>
+    /// The name that opens the response-level members of a saved result: <c>my_response.@http.headers</c>.
+    /// </summary>
     public const string HttpMemberName = "@http";
 
     private readonly Lazy<IReadOnlyDictionary<string, object?>> _http = new(() =>
@@ -34,13 +39,19 @@ public sealed class LazyJson(string text, IReadOnlyDictionary<string, object?>? 
     /// </summary>
     public IReadOnlyDictionary<string, object?> Http => _http.Value;
 
-    /// <summary>The parsed JSON tree, or null when the body is not JSON.</summary>
+    /// <summary>
+    /// The parsed JSON tree, or null when the body is not JSON.
+    /// </summary>
     public JsonNode? Node => _node.Value;
 
-    /// <summary>The JSON tree when the body is JSON, otherwise the raw text.</summary>
+    /// <summary>
+    /// The JSON tree when the body is JSON, otherwise the raw text.
+    /// </summary>
     public object Value => (object?)Node ?? text;
 
-    /// <summary>An independent copy, so parallel tests never share (and race on) one JSON tree.</summary>
+    /// <summary>
+    /// An independent copy, so parallel tests never share (and race on) one JSON tree.
+    /// </summary>
     public LazyJson Clone() => new(text, members);
 
     private static JsonNode? Parse(string text)

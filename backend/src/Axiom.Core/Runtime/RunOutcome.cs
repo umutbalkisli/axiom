@@ -10,7 +10,16 @@ namespace Axiom.Runtime;
 [JsonConverter(typeof(JsonStringEnumConverter))]
 public enum RunOutcome
 {
+    /// <summary>
+    /// It ran and everything held.
+    /// </summary>
     Passed,
+    /// <summary>
+    /// It ran and the API did not behave as expected.
+    /// </summary>
     Failed,
+    /// <summary>
+    /// It could not be evaluated: a problem with the test or its environment.
+    /// </summary>
     Error,
 }

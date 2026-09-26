@@ -81,7 +81,9 @@ internal static class ValueComparison
         return string.Compare(TextOf(left), TextOf(right), options.Text);
     }
 
-    /// <summary>True when the two numbers differ by at most <see cref="ComparisonOptions.Tolerance"/>.</summary>
+    /// <summary>
+    /// True when the two numbers differ by at most <see cref="ComparisonOptions.Tolerance"/>.
+    /// </summary>
     public static bool IsApproximately(object? actual, object? expected, ComparisonOptions options)
     {
         if (!TryToDecimal(actual, out var actualNumber) || !TryToDecimal(expected, out var expectedNumber))
@@ -110,7 +112,9 @@ internal static class ValueComparison
     public static bool EndsWith(object? actual, object? expected, ComparisonOptions options) =>
         TextFor("ends_with", actual)?.EndsWith(TextOf(Plain(expected)) ?? string.Empty, options.Text) == true;
 
-    /// <summary>Finds the regular expression anywhere in the text (anchor it with ^ and $ for a full match).</summary>
+    /// <summary>
+    /// Finds the regular expression anywhere in the text (anchor it with ^ and $ for a full match).
+    /// </summary>
     public static bool Matches(object? actual, object? expected, ComparisonOptions options)
     {
         var text = TextFor("matches", actual);
@@ -137,7 +141,9 @@ internal static class ValueComparison
 
     // ---- membership, type, emptiness ----
 
-    /// <summary>The expected value is a list (YAML list, JSON array text, or comma separated text); true when the actual value equals one of its items.</summary>
+    /// <summary>
+    /// The expected value is a list (YAML list, JSON array text, or comma separated text); true when the actual value equals one of its items.
+    /// </summary>
     public static bool IsOneOf(object? actual, object? expected, ComparisonOptions options) =>
         ExpectedItems(expected).Any(item => AreEqual(actual, item, options));
 
@@ -195,7 +201,9 @@ internal static class ValueComparison
         }
     }
 
-    /// <summary>A short description of a value for messages. Never serializes a list or object in full.</summary>
+    /// <summary>
+    /// A short description of a value for messages. Never serializes a list or object in full.
+    /// </summary>
     public static string Preview(object? value)
     {
         return Plain(value) switch
@@ -221,7 +229,9 @@ internal static class ValueComparison
     private static bool IsNumber(object? value) =>
         value is decimal or int or long or double or float or short or byte or sbyte or ushort or uint or ulong;
 
-    /// <summary>Reduces JSON wrappers to plain .NET values (string, number, bool, null); lists and objects are left as they are.</summary>
+    /// <summary>
+    /// Reduces JSON wrappers to plain .NET values (string, number, bool, null); lists and objects are left as they are.
+    /// </summary>
     private static object? Plain(object? value)
     {
         switch (value)
@@ -255,7 +265,9 @@ internal static class ValueComparison
         return leftNode is not null && rightNode is not null && JsonNode.DeepEquals(leftNode, rightNode);
     }
 
-    /// <summary>Views a value as a JSON tree: JSON nodes as they are, JSON text parsed, other lists and objects converted.</summary>
+    /// <summary>
+    /// Views a value as a JSON tree: JSON nodes as they are, JSON text parsed, other lists and objects converted.
+    /// </summary>
     private static JsonNode? AsNode(object value)
     {
         try
@@ -315,7 +327,9 @@ internal static class ValueComparison
         }
     }
 
-    /// <summary>The text of a single value; null when there is none, an error for lists and objects.</summary>
+    /// <summary>
+    /// The text of a single value; null when there is none, an error for lists and objects.
+    /// </summary>
     private static string? TextFor(string operatorName, object? actual)
     {
         var plain = Plain(actual);

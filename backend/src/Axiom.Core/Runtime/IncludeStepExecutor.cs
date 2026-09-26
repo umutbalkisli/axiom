@@ -2,15 +2,29 @@ using Axiom.Models;
 
 namespace Axiom.Runtime;
 
-/// <summary>Runs a shared step group inside the current test. Variables the group saves become available to the steps after it.</summary>
+/// <summary>
+/// Runs a shared step group inside the current test. Variables the group saves become available to the steps after it.
+/// </summary>
 public sealed class IncludeStepExecutor : IStepExecutor
 {
+    /// <summary>
+    /// The step type this executor handles.
+    /// </summary>
     public const string StepType = "include";
 
+    /// <summary>
+    /// The step type this executor handles.
+    /// </summary>
     public string Type => StepType;
 
+    /// <summary>
+    /// True: the steps inside a shared group apply their own timeouts.
+    /// </summary>
     public bool ManagesTimeout => true;
 
+    /// <summary>
+    /// Runs the referenced shared steps, once per run or inside this test depending on the group's run mode.
+    /// </summary>
     public async Task<StepExecutionResult> ExecuteAsync(StepExecutionContext context, StepDefinition step, CancellationToken cancellationToken)
     {
         var id = step.Ref?.Trim();
@@ -60,7 +74,9 @@ public sealed class IncludeStepExecutor : IStepExecutor
         };
     }
 
-    /// <summary>A run-once group must not depend on the including test, so it starts from the collection variables only.</summary>
+    /// <summary>
+    /// A run-once group must not depend on the including test, so it starts from the collection variables only.
+    /// </summary>
     private static async Task<SharedOutcome> RunIsolatedAsync(StepExecutionContext context, SharedStepsDefinition definition, List<string> chain, CancellationToken cancellationToken)
     {
         var variables = StepVariables.Initial(context.Collection, [], context.Secrets);

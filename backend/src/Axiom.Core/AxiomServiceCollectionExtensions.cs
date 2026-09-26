@@ -8,6 +8,9 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace Axiom;
 
+/// <summary>
+/// Registers the Axiom engine in a dependency injection container.
+/// </summary>
 public static class AxiomServiceCollectionExtensions
 {
     /// <summary>

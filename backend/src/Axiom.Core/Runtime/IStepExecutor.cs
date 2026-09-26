@@ -12,8 +12,13 @@ public interface IStepExecutor
     /// </summary>
     string Type { get; }
 
-    /// <summary>True for steps that run other steps and so leave the per-step timeout to them.</summary>
+    /// <summary>
+    /// True for steps that run other steps and so leave the per-step timeout to them.
+    /// </summary>
     bool ManagesTimeout => false;
 
+    /// <summary>
+    /// Runs the step and returns its result. May add values to <see cref="StepExecutionContext.Variables"/>.
+    /// </summary>
     Task<StepExecutionResult> ExecuteAsync(StepExecutionContext context, StepDefinition step, CancellationToken cancellationToken);
 }

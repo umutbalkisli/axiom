@@ -2,15 +2,24 @@ using Axiom.Models;
 
 namespace Axiom.Secrets;
 
+/// <summary>
+/// Reads the secrets a collection declares from their providers.
+/// </summary>
 public sealed class SecretResolver
 {
     private readonly Dictionary<string, ISecretProvider> _providers;
 
+    /// <summary>
+    /// Creates a resolver that knows the given providers.
+    /// </summary>
     public SecretResolver(IEnumerable<ISecretProvider> providers)
     {
         _providers = providers.ToDictionary(p => p.Name, StringComparer.OrdinalIgnoreCase);
     }
 
+    /// <summary>
+    /// The providers that can be asked for secrets.
+    /// </summary>
     public IReadOnlyCollection<ISecretProvider> Providers => _providers.Values;
 
     /// <summary>

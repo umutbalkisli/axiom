@@ -7,11 +7,23 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace Axiom.Runtime;
 
+/// <summary>
+/// Creates a runner that loads collections with <paramref name="loader"/>.
+/// </summary>
+/// <summary>
+/// Runs every test of a collection, several at a time, and reports the results.
+/// </summary>
 public sealed class CollectionRunner(YamlCollectionLoader loader, IServiceScopeFactory scopeFactory)
 {
+    /// <summary>
+    /// Runs the collection in <paramref name="folderPath"/> with default options.
+    /// </summary>
     public Task<CollectionExecutionResult> RunAsync(string folderPath, CancellationToken cancellationToken = default) =>
         RunAsync(folderPath, new RunOptions(), cancellationToken);
 
+    /// <summary>
+    /// Runs the collection in <paramref name="folderPath"/>. Secrets are resolved first, so a missing secret fails the run before any step executes.
+    /// </summary>
     public async Task<CollectionExecutionResult> RunAsync(string folderPath, RunOptions options, CancellationToken cancellationToken = default)
     {
         var loaded = loader.Load(folderPath);

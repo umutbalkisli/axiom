@@ -3,12 +3,19 @@ using Axiom.Secrets;
 
 namespace Axiom.Runtime;
 
+/// <summary>
+/// Builds the variables a run of steps starts with.
+/// </summary>
 public static class StepVariables
 {
-    /// <summary>Reserved variable name under which secrets are exposed to templates.</summary>
+    /// <summary>
+    /// Reserved variable name under which secrets are exposed to templates.
+    /// </summary>
     public const string SecretName = "secret";
 
-    /// <summary>The variables a run of steps starts with: collection variables, then <paramref name="extra"/> (test variables), with secrets expanded.</summary>
+    /// <summary>
+    /// The variables a run of steps starts with: collection variables, then <paramref name="extra"/> (test variables), with secrets expanded.
+    /// </summary>
     public static Dictionary<string, object?> Initial(CollectionDefinition collection, IEnumerable<KeyValuePair<string, object?>> extra, RunSecrets secrets)
     {
         var variables = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);

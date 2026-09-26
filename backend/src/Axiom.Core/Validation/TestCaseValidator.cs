@@ -4,12 +4,18 @@ using Axiom.Runtime;
 
 namespace Axiom.Validation;
 
+/// <summary>
+/// Validates tests and shared steps before they are saved: names, step types, required fields, operators and aggregations.
+/// </summary>
 public sealed class TestCaseValidator
 {
     private readonly Dictionary<string, IStepValidator> _stepValidators;
     private readonly HashSet<string> _aggregations;
     private readonly HashSet<string> _operators;
 
+    /// <summary>
+    /// Creates a validator that knows the given step types, aggregations and operators.
+    /// </summary>
     public TestCaseValidator(IEnumerable<IStepValidator> stepValidators, IEnumerable<IAssertionAggregation> aggregations, IEnumerable<IAssertionOperator> operators)
     {
         _operators = operators.Select(o => o.Name).ToHashSet(StringComparer.Ordinal);
@@ -17,6 +23,9 @@ public sealed class TestCaseValidator
         _aggregations = aggregations.Select(a => a.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
     }
 
+    /// <summary>
+    /// Returns every problem found in a test.
+    /// </summary>
     public List<FieldError> Validate(SaveTestCaseRequest request)
     {
         var errors = new List<FieldError>();
@@ -37,6 +46,9 @@ public sealed class TestCaseValidator
         return errors;
     }
 
+    /// <summary>
+    /// Returns every problem found in a shared steps group.
+    /// </summary>
     public List<FieldError> Validate(SaveSharedStepsRequest request)
     {
         var errors = new List<FieldError>();
@@ -56,7 +68,9 @@ public sealed class TestCaseValidator
         return errors;
     }
 
-    /// <summary>Include steps must point at existing shared groups.</summary>
+    /// <summary>
+    /// Include steps must point at existing shared groups.
+    /// </summary>
     public static IEnumerable<FieldError> ValidateIncludes(IReadOnlyList<StepDocument> steps, IReadOnlySet<string> sharedIds)
     {
         for (var index = 0; index < steps.Count; index++)

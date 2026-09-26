@@ -1,7 +1,13 @@
 namespace Axiom.Runtime;
 
+/// <summary>
+/// The operators that ship with Axiom.
+/// </summary>
 public static class BuiltInAssertionOperators
 {
+    /// <summary>
+    /// Every built-in operator.
+    /// </summary>
     public static IReadOnlyList<IAssertionOperator> All { get; } =
     [
         // equality and ordering

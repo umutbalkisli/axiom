@@ -79,7 +79,9 @@ internal static class ReportFormatterService
         }
     }
 
-    /// <summary>ERROR marks something that could not be evaluated, as opposed to FAIL for something that ran and did not pass.</summary>
+    /// <summary>
+    /// ERROR marks something that could not be evaluated, as opposed to FAIL for something that ran and did not pass.
+    /// </summary>
     private static string Label(RunOutcome outcome) => outcome switch
     {
         RunOutcome.Passed => "PASS",

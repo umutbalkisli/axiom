@@ -3,10 +3,19 @@ using Axiom.Runtime;
 
 namespace Axiom.Validation;
 
+/// <summary>
+/// Checks that a request step has a method and a URL.
+/// </summary>
 public sealed class RequestStepValidator : IStepValidator
 {
+    /// <summary>
+    /// The step type this validator checks.
+    /// </summary>
     public string StepType => RequestStepExecutor.StepType;
 
+    /// <summary>
+    /// Returns the problems in the request step.
+    /// </summary>
     public IEnumerable<FieldError> Validate(StepDocument step, string fieldPrefix)
     {
         if (string.IsNullOrWhiteSpace(step.Method))
@@ -21,10 +30,19 @@ public sealed class RequestStepValidator : IStepValidator
     }
 }
 
+/// <summary>
+/// Checks that a db_query step has a connection and SQL.
+/// </summary>
 public sealed class DbQueryStepValidator : IStepValidator
 {
+    /// <summary>
+    /// The step type this validator checks.
+    /// </summary>
     public string StepType => DbQueryStepExecutor.StepType;
 
+    /// <summary>
+    /// Returns the problems in the db_query step.
+    /// </summary>
     public IEnumerable<FieldError> Validate(StepDocument step, string fieldPrefix)
     {
         if (string.IsNullOrWhiteSpace(step.Connection))
@@ -39,10 +57,19 @@ public sealed class DbQueryStepValidator : IStepValidator
     }
 }
 
+/// <summary>
+/// Checks that an include step names the shared steps to run.
+/// </summary>
 public sealed class IncludeStepValidator : IStepValidator
 {
+    /// <summary>
+    /// The step type this validator checks.
+    /// </summary>
     public string StepType => IncludeStepExecutor.StepType;
 
+    /// <summary>
+    /// Returns the problems in the include step.
+    /// </summary>
     public IEnumerable<FieldError> Validate(StepDocument step, string fieldPrefix)
     {
         if (string.IsNullOrWhiteSpace(step.Ref))

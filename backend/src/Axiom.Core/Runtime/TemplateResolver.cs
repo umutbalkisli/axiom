@@ -3,10 +3,16 @@ using System.Text.RegularExpressions;
 
 namespace Axiom.Runtime;
 
+/// <summary>
+/// Resolves <c>{{variable}}</c> templates and dotted paths against the values of a run.
+/// </summary>
 public static partial class TemplateResolver
 {
     private static readonly Regex TokenRegex = TokenPattern();
 
+    /// <summary>
+    /// Replaces every <c>{{expression}}</c> in <paramref name="value"/>; throws when a variable does not exist.
+    /// </summary>
     public static string ResolveString(string value, IReadOnlyDictionary<string, object?> context)
     {
         if (string.IsNullOrEmpty(value))
@@ -27,6 +33,9 @@ public static partial class TemplateResolver
         });
     }
 
+    /// <summary>
+    /// Evaluates a dotted expression (<c>todo.0.Id</c>) against <paramref name="context"/>; null when it does not resolve.
+    /// </summary>
     public static object? ResolveObject(string expression, IReadOnlyDictionary<string, object?> context)
     {
         var segments = expression.Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
@@ -52,6 +61,9 @@ public static partial class TemplateResolver
         return UnwrapJson(current);
     }
 
+    /// <summary>
+    /// Applies <paramref name="path"/> to <paramref name="source"/>; null when it does not resolve.
+    /// </summary>
     public static object? ResolveFrom(object? source, string? path)
     {
         TryResolveFrom(source, path, out var value);
@@ -157,7 +169,9 @@ public static partial class TemplateResolver
     private static object? ResolveSegment(object? current, string segment) =>
         TryResolveSegment(current, segment, out var value) ? value : null;
 
-    /// <summary>Reads one path segment. Returns false when it does not exist; a present JSON null returns true with a null value.</summary>
+    /// <summary>
+    /// Reads one path segment. Returns false when it does not exist; a present JSON null returns true with a null value.
+    /// </summary>
     private static bool TryResolveSegment(object? current, string segment, out object? value)
     {
         value = null;
@@ -223,7 +237,9 @@ public static partial class TemplateResolver
         return false;
     }
 
-    /// <summary>A lazily parsed response body becomes its JSON tree (or its text when it is not JSON).</summary>
+    /// <summary>
+    /// A lazily parsed response body becomes its JSON tree (or its text when it is not JSON).
+    /// </summary>
     private static object? Unlazy(object? value) => value is LazyJson lazy ? lazy.Value : value;
 
     internal static object? UnwrapJson(object? value)

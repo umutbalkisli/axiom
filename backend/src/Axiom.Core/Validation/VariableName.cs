@@ -2,13 +2,19 @@ using System.Text.RegularExpressions;
 
 namespace Axiom.Validation;
 
-/// <summary>Naming rule for variables and saved results: letters and underscores only.</summary>
+/// <summary>
+/// Naming rule for variables and saved results: letters and underscores only.
+/// </summary>
 public static partial class VariableName
 {
-    /// <summary>Exposed to templates as <c>{{secret.name}}</c>, so a variable cannot take this name.</summary>
+    /// <summary>
+    /// Exposed to templates as <c>{{secret.name}}</c>, so a variable cannot take this name.
+    /// </summary>
     private const string Reserved = "secret";
 
-    /// <summary>Returns a readable problem description, or null when <paramref name="name"/> is a valid variable name.</summary>
+    /// <summary>
+    /// Returns a readable problem description, or null when <paramref name="name"/> is a valid variable name.
+    /// </summary>
     public static string? Check(string? name)
     {
         if (string.IsNullOrWhiteSpace(name))

@@ -6,12 +6,24 @@ namespace Axiom.Secrets;
 /// </summary>
 public sealed class FileSecretProvider : ISecretProvider
 {
+    /// <summary>
+    /// The environment variable that names the secrets directory.
+    /// </summary>
     public const string DirectoryVariable = "AXIOM_SECRETS_DIR";
 
+    /// <summary>
+    /// The provider name: <c>file</c>.
+    /// </summary>
     public string Name => "file";
 
+    /// <summary>
+    /// The key is a relative file name inside the secrets directory.
+    /// </summary>
     public string KeyFormat => "relative/file/name";
 
+    /// <summary>
+    /// Reads the file <paramref name="key"/> inside the secrets directory; the key cannot escape it.
+    /// </summary>
     public async Task<string?> GetSecretAsync(string key, CancellationToken cancellationToken)
     {
         var directory = Environment.GetEnvironmentVariable(DirectoryVariable);

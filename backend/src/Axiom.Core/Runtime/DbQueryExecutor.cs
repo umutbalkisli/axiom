@@ -5,16 +5,25 @@ using Axiom.Models;
 
 namespace Axiom.Runtime;
 
+/// <summary>
+/// Runs SQL through the registered <see cref="IDbConnectionFactory"/> providers and keeps connections open for the duration of a run.
+/// </summary>
 public sealed class DbQueryExecutor : IDbQueryExecutor, IAsyncDisposable
 {
     private readonly ConcurrentDictionary<string, Lazy<CachedConnection>> _connections = new(StringComparer.Ordinal);
     private readonly Dictionary<string, IDbConnectionFactory> _factories;
 
+    /// <summary>
+    /// Creates an executor that supports the providers of <paramref name="factories"/>.
+    /// </summary>
     public DbQueryExecutor(IEnumerable<IDbConnectionFactory> factories)
     {
         _factories = factories.ToDictionary(f => f.Provider, StringComparer.OrdinalIgnoreCase);
     }
 
+    /// <summary>
+    /// Runs <paramref name="sql"/> on the connection described by <paramref name="connectionDefinition"/> and returns every row.
+    /// </summary>
     public async Task<List<Dictionary<string, object?>>> QueryAsync(DbConnectionDefinition connectionDefinition, string sql, CancellationToken cancellationToken)
     {
         var provider = connectionDefinition.Provider.Trim();
@@ -39,6 +48,9 @@ public sealed class DbQueryExecutor : IDbQueryExecutor, IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// Closes every connection opened during the run.
+    /// </summary>
     public async ValueTask DisposeAsync()
     {
         foreach (var connection in _connections.Values)

@@ -3,8 +3,17 @@ using Axiom.Secrets;
 
 namespace Axiom.Runtime;
 
+/// <summary>
+/// Creates an executor that runs steps with <paramref name="runner"/>.
+/// </summary>
+/// <summary>
+/// Runs one test: builds its variables, then runs its steps.
+/// </summary>
 public sealed class TestCaseExecutor(StepRunner runner)
 {
+    /// <summary>
+    /// Runs <paramref name="testCase"/> and returns its result. A test whose variables cannot be resolved reports that as an error step.
+    /// </summary>
     public async Task<TestCaseExecutionResult> ExecuteAsync(
         CollectionDefinition collection,
         TestCaseDefinition testCase,

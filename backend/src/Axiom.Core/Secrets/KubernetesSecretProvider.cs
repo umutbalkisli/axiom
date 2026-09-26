@@ -14,10 +14,19 @@ public sealed class KubernetesSecretProvider : ISecretProvider, IDisposable
 {
     private readonly Lazy<HttpClient> _httpClient = new(CreateHttpClient);
 
+    /// <summary>
+    /// The provider name: <c>k8s</c>.
+    /// </summary>
     public string Name => "k8s";
 
+    /// <summary>
+    /// The key names a data entry of a Kubernetes secret.
+    /// </summary>
     public string KeyFormat => "secret-name/data-key  or  namespace/secret-name/data-key";
 
+    /// <summary>
+    /// Reads one data entry of a Kubernetes secret through the API server.
+    /// </summary>
     public async Task<string?> GetSecretAsync(string key, CancellationToken cancellationToken)
     {
         var parts = key.Split('/', StringSplitOptions.TrimEntries);
@@ -51,6 +60,9 @@ public sealed class KubernetesSecretProvider : ISecretProvider, IDisposable
         return encoded is null ? null : Encoding.UTF8.GetString(Convert.FromBase64String(encoded));
     }
 
+    /// <summary>
+    /// Releases the HTTP client.
+    /// </summary>
     public void Dispose()
     {
         if (_httpClient.IsValueCreated)

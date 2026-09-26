@@ -8,8 +8,14 @@ using System.Text.Json;
 
 namespace Axiom.Services;
 
+/// <summary>
+/// Reads and writes the editable parts of a collection: settings, tests and shared steps.
+/// </summary>
 public sealed class CollectionManagementService
 {
+    /// <summary>
+    /// Reads <c>collection.yaml</c>; null when the folder has none.
+    /// </summary>
     public CollectionDocument? GetCollection(string folderPath)
     {
         var path = CollectionPaths.CollectionFile(folderPath);
@@ -28,6 +34,9 @@ public sealed class CollectionManagementService
         return document;
     }
 
+    /// <summary>
+    /// Replaces the collection variables.
+    /// </summary>
     public void SaveCollectionVariables(string folderPath, Dictionary<string, object?> variables)
     {
         var collection = GetCollection(folderPath) ?? throw new FileNotFoundException($"{CollectionPaths.CollectionFileName} not found");
@@ -35,6 +44,9 @@ public sealed class CollectionManagementService
         SerializeFile(CollectionPaths.CollectionFile(folderPath), collection);
     }
 
+    /// <summary>
+    /// Replaces the collection variables and connections, and the secret references when given.
+    /// </summary>
     public void SaveCollectionSettings(string folderPath, Dictionary<string, object?> variables, Dictionary<string, object?> connections, Dictionary<string, SecretReference>? secrets = null)
     {
         var collection = GetCollection(folderPath) ?? throw new FileNotFoundException($"{CollectionPaths.CollectionFileName} not found");
@@ -47,6 +59,9 @@ public sealed class CollectionManagementService
         SerializeFile(CollectionPaths.CollectionFile(folderPath), collection);
     }
 
+    /// <summary>
+    /// Replaces the secret references.
+    /// </summary>
     public void SaveCollectionSecrets(string folderPath, Dictionary<string, SecretReference> secrets)
     {
         var collection = GetCollection(folderPath) ?? throw new FileNotFoundException($"{CollectionPaths.CollectionFileName} not found");
@@ -54,6 +69,9 @@ public sealed class CollectionManagementService
         SerializeFile(CollectionPaths.CollectionFile(folderPath), collection);
     }
 
+    /// <summary>
+    /// Lists the tests in the tests folder.
+    /// </summary>
     public IReadOnlyList<TestCaseListItem> ListTests(string folderPath)
     {
         var testsDir = CollectionPaths.TestsDirectory(folderPath);
@@ -82,6 +100,9 @@ public sealed class CollectionManagementService
             .ToList();
     }
 
+    /// <summary>
+    /// Reads one test; null when it does not exist.
+    /// </summary>
     public TestCaseDocument? GetTest(string folderPath, string fileName)
     {
         var path = CollectionPaths.TestFile(folderPath, fileName);
@@ -123,9 +144,15 @@ public sealed class CollectionManagementService
         return SaveNamed(folderPath, CollectionPaths.Tests, request.FileName, request.FileNameHint, request.Name, document, followName: true);
     }
 
+    /// <summary>
+    /// True when the test file exists.
+    /// </summary>
     public bool TestExists(string folderPath, string fileNameOrId) =>
         File.Exists(CollectionPaths.TestFile(folderPath, fileNameOrId));
 
+    /// <summary>
+    /// Lists the shared step groups, including the variables each provides.
+    /// </summary>
     public IReadOnlyList<SharedStepsListItem> ListShared(string folderPath)
     {
         var directory = CollectionPaths.Directory(folderPath, CollectionPaths.Shared);
@@ -150,13 +177,18 @@ public sealed class CollectionManagementService
             .ToList();
     }
 
+    /// <summary>
+    /// Reads one shared group; null when it does not exist.
+    /// </summary>
     public SharedStepsDocument? GetShared(string folderPath, string fileName)
     {
         var path = CollectionPaths.File(folderPath, CollectionPaths.Shared, fileName);
         return File.Exists(path) ? ReadShared(path) : null;
     }
 
-    /// <summary>Saves a shared step group. Its file name is fixed once created because tests refer to it by that name.</summary>
+    /// <summary>
+    /// Saves a shared step group. Its file name is fixed once created because tests refer to it by that name.
+    /// </summary>
     public (string FilePath, string FileName) SaveShared(string folderPath, SaveSharedStepsRequest request)
     {
         var document = new SharedStepsDocument
@@ -172,7 +204,9 @@ public sealed class CollectionManagementService
         return SaveNamed(folderPath, CollectionPaths.Shared, request.FileName, null, request.Name, document, followName: false);
     }
 
-    /// <summary>Deletes a shared group unless a test or another group still includes it.</summary>
+    /// <summary>
+    /// Deletes a shared group unless a test or another group still includes it.
+    /// </summary>
     public void DeleteShared(string folderPath, string fileName)
     {
         var path = CollectionPaths.File(folderPath, CollectionPaths.Shared, fileName);
@@ -251,7 +285,9 @@ public sealed class CollectionManagementService
         return document;
     }
 
-    /// <summary>The variables a group saves, including those saved by groups it includes.</summary>
+    /// <summary>
+    /// The variables a group saves, including those saved by groups it includes.
+    /// </summary>
     private static List<string> ProvidedNames(SharedStepsDocument document, Dictionary<string, SharedStepsDocument> all, HashSet<string> visiting)
     {
         var names = new List<string>();
@@ -304,7 +340,9 @@ public sealed class CollectionManagementService
         return (targetPath, targetName);
     }
 
-    /// <summary>Keeps the file name in step with the name, but only if the file still has the name Axiom gave it.</summary>
+    /// <summary>
+    /// Keeps the file name in step with the name, but only if the file still has the name Axiom gave it.
+    /// </summary>
     private static string ResolveNameForUpdate(string folderPath, FileKind kind, string currentName, string currentPath, string newName)
     {
         var oldName = DeserializeFile<NamedDocument>(currentPath)?.Name;
@@ -339,6 +377,9 @@ public sealed class CollectionManagementService
         public string? Name { get; set; }
     }
 
+    /// <summary>
+    /// Deletes a test file; does nothing when it does not exist.
+    /// </summary>
     public void DeleteTest(string folderPath, string fileName)
     {
         var path = CollectionPaths.TestFile(folderPath, fileName);

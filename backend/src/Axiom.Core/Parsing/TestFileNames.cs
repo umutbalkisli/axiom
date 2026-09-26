@@ -10,10 +10,15 @@ namespace Axiom.Parsing;
 /// </summary>
 public static partial class TestFileNames
 {
+    /// <summary>
+    /// The longest file name (without suffix) that is generated.
+    /// </summary>
     public const int MaxLength = 48;
     private const string Fallback = "untitled";
 
-    /// <summary>"Şifre Değiştir / Get todo #1" becomes "sifre-degistir-get-todo-1": ASCII, lowercase, at most <see cref="MaxLength"/> characters.</summary>
+    /// <summary>
+    /// "Şifre Değiştir / Get todo #1" becomes "sifre-degistir-get-todo-1": ASCII, lowercase, at most <see cref="MaxLength"/> characters.
+    /// </summary>
     public static string Slug(string? text)
     {
         var source = (text ?? string.Empty)

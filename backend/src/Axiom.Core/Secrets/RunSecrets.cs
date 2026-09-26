@@ -3,18 +3,28 @@ using Axiom.Runtime;
 
 namespace Axiom.Secrets;
 
-/// <summary>The secret values resolved for one run, with template expansion and output masking.</summary>
+/// <summary>
+/// The secret values resolved for one run, with template expansion and output masking.
+/// </summary>
 public sealed partial class RunSecrets
 {
-    /// <summary>Values shorter than this are not masked, so short values do not shred unrelated text in reports.</summary>
+    /// <summary>
+    /// Values shorter than this are not masked, so short values do not shred unrelated text in reports.
+    /// </summary>
     private const int MinMaskedLength = 4;
     private const string MaskText = "********";
 
+    /// <summary>
+    /// A set without any secrets.
+    /// </summary>
     public static RunSecrets Empty { get; } = new(new Dictionary<string, string>());
 
     private readonly Dictionary<string, string> _values;
     private readonly string[] _maskedValues;
 
+    /// <summary>
+    /// Creates the set from resolved values by secret name.
+    /// </summary>
     public RunSecrets(IReadOnlyDictionary<string, string> values)
     {
         _values = new Dictionary<string, string>(values, StringComparer.OrdinalIgnoreCase);
@@ -25,13 +35,20 @@ public sealed partial class RunSecrets
             .ToArray();
     }
 
+    /// <summary>
+    /// True when there are no secrets.
+    /// </summary>
     public bool IsEmpty => _values.Count == 0;
 
-    /// <summary>Exposes the values to templates as <c>{{secret.name}}</c>.</summary>
+    /// <summary>
+    /// Exposes the values to templates as <c>{{secret.name}}</c>.
+    /// </summary>
     public IReadOnlyDictionary<string, object?> AsTemplateVariables() =>
         new Dictionary<string, object?>(_values.ToDictionary(p => p.Key, p => (object?)p.Value), StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>Replaces <c>{{secret.name}}</c> tokens only; other templates are left for the step to resolve.</summary>
+    /// <summary>
+    /// Replaces <c>{{secret.name}}</c> tokens only; other templates are left for the step to resolve.
+    /// </summary>
     public string Expand(string text)
     {
         if (string.IsNullOrEmpty(text) || !text.Contains("{{", StringComparison.Ordinal))
@@ -48,6 +65,9 @@ public sealed partial class RunSecrets
         });
     }
 
+    /// <summary>
+    /// Replaces every secret value in the text with asterisks.
+    /// </summary>
     public string? Mask(string? text)
     {
         if (string.IsNullOrEmpty(text))
@@ -63,6 +83,9 @@ public sealed partial class RunSecrets
         return text;
     }
 
+    /// <summary>
+    /// Returns the step result with every secret value in its messages and values replaced by asterisks.
+    /// </summary>
     public StepExecutionResult Mask(StepExecutionResult step)
     {
         if (_maskedValues.Length == 0)

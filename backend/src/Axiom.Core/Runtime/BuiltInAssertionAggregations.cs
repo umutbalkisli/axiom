@@ -3,8 +3,14 @@ using System.Text.Json.Nodes;
 
 namespace Axiom.Runtime;
 
+/// <summary>
+/// The aggregations that ship with Axiom: count, sum, avg, min, max.
+/// </summary>
 public static class BuiltInAssertionAggregations
 {
+    /// <summary>
+    /// Every built-in aggregation.
+    /// </summary>
     public static IReadOnlyList<IAssertionAggregation> All { get; } =
     [
         new Aggregation("count", Count),
@@ -14,7 +20,9 @@ public static class BuiltInAssertionAggregations
         new Aggregation("max", value => NonEmpty("max", Numbers("max", value)).Max()),
     ];
 
-    /// <summary>Items in a list or rows, or properties in an object.</summary>
+    /// <summary>
+    /// Items in a list or rows, or properties in an object.
+    /// </summary>
     private static object Count(object? value) => value switch
     {
         null => throw Missing("count"),

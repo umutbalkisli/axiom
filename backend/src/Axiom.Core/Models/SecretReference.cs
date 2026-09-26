@@ -1,9 +1,17 @@
 namespace Axiom.Models;
 
-/// <summary>Where one secret value is read from: a provider and that provider's key.</summary>
+/// <summary>
+/// Where one secret value is read from: a provider and that provider's key.
+/// </summary>
 public class SecretSource
 {
+    /// <summary>
+    /// The secret provider to ask (<c>env</c>, <c>file</c>, <c>k8s</c>, <c>vault</c>, <c>local</c>, ...).
+    /// </summary>
     public string Provider { get; set; } = string.Empty;
+    /// <summary>
+    /// The provider-specific key that identifies the secret.
+    /// </summary>
     public string Key { get; set; } = string.Empty;
 }
 
@@ -14,9 +22,14 @@ public class SecretSource
 /// </summary>
 public sealed class SecretReference : SecretSource
 {
+    /// <summary>
+    /// Sources that replace the default one for a named environment.
+    /// </summary>
     public Dictionary<string, SecretSource>? Environments { get; set; }
 
-    /// <summary>The source to use for <paramref name="environment"/>, or the default when it has no override.</summary>
+    /// <summary>
+    /// The source to use for <paramref name="environment"/>, or the default when it has no override.
+    /// </summary>
     public SecretSource SourceFor(string? environment)
     {
         if (!string.IsNullOrWhiteSpace(environment) && Environments is not null)

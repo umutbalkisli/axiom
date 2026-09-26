@@ -4,9 +4,14 @@ using Axiom.Serialization;
 
 namespace Axiom.Services;
 
+/// <summary>
+/// Creates a new collection folder with a starter collection file.
+/// </summary>
 public sealed class CollectionInitializer
 {
-    /// <summary>Creates the collection folder with a starter collection file. An existing collection file is left untouched.</summary>
+    /// <summary>
+    /// Creates the collection folder with a starter collection file. An existing collection file is left untouched.
+    /// </summary>
     public async Task InitializeAsync(string folderPath, string collectionName, CancellationToken cancellationToken = default)
     {
         Directory.CreateDirectory(folderPath);

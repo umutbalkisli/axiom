@@ -10,10 +10,19 @@ public sealed class VaultSecretProvider : ISecretProvider, IDisposable
 {
     private readonly HttpClient _httpClient = new();
 
+    /// <summary>
+    /// The provider name: <c>vault</c>.
+    /// </summary>
     public string Name => "vault";
 
+    /// <summary>
+    /// The key looks like <c>mount/path#field</c>.
+    /// </summary>
     public string KeyFormat => "mount/path#field";
 
+    /// <summary>
+    /// Reads one field of a secret from HashiCorp Vault.
+    /// </summary>
     public async Task<string?> GetSecretAsync(string key, CancellationToken cancellationToken)
     {
         var address = Environment.GetEnvironmentVariable("VAULT_ADDR");
@@ -59,6 +68,9 @@ public sealed class VaultSecretProvider : ISecretProvider, IDisposable
         return data?[field]?.ToString();
     }
 
+    /// <summary>
+    /// Releases the HTTP client.
+    /// </summary>
     public void Dispose() => _httpClient.Dispose();
 
     private static (string Path, string Field) SplitKey(string key)

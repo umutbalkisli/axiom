@@ -5,12 +5,27 @@ using Axiom.Models;
 
 namespace Axiom.Runtime;
 
+/// <summary>
+/// Creates the executor.
+/// </summary>
+/// <summary>
+/// Runs a <c>request</c> step: sends an HTTP request and checks assertions on the response.
+/// </summary>
 public sealed class RequestStepExecutor(HttpClient httpClient, AssertionEngine assertionEngine) : IStepExecutor
 {
+    /// <summary>
+    /// The step type this executor handles.
+    /// </summary>
     public const string StepType = "request";
 
+    /// <summary>
+    /// The step type this executor handles.
+    /// </summary>
     public string Type => StepType;
 
+    /// <summary>
+    /// Sends the request and evaluates the step's assertions on <c>status</c>, <c>body</c>, <c>body_text</c>, <c>headers</c> and <c>duration_ms</c>.
+    /// </summary>
     public async Task<StepExecutionResult> ExecuteAsync(StepExecutionContext context, StepDefinition step, CancellationToken cancellationToken)
     {
         var variables = context.Variables;

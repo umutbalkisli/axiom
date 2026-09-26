@@ -7,9 +7,17 @@ using System.Text.Json.Nodes;
 
 namespace Axiom.Services;
 
+/// <summary>
+/// Creates one starter test per operation of an OpenAPI document.
+/// </summary>
+/// <summary>
+/// Creates the importer.
+/// </summary>
 public sealed class OpenApiImporter(HttpClient httpClient, CollectionInitializer initializer, CollectionManagementService manager)
 {
-    /// <summary>Downloads an OpenAPI document and saves one basic test per operation. Returns the number of tests created.</summary>
+    /// <summary>
+    /// Downloads an OpenAPI document and saves one basic test per operation. Returns the number of tests created.
+    /// </summary>
     public async Task<int> ImportFromUrlAsync(string folderPath, string collectionName, string specificationUrl, CancellationToken cancellationToken = default)
     {
         if (!Uri.TryCreate(specificationUrl, UriKind.Absolute, out var uri) || uri.Scheme is not ("http" or "https"))

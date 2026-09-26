@@ -6,8 +6,14 @@ using Axiom.Validation;
 
 namespace Axiom.Parsing;
 
+/// <summary>
+/// Reads a collection folder (settings, tests and shared steps) into model objects and validates it.
+/// </summary>
 public sealed class YamlCollectionLoader
 {
+    /// <summary>
+    /// Loads the collection in <paramref name="folderPath"/>; throws when it is missing or invalid.
+    /// </summary>
     public LoadedCollection Load(string folderPath)
     {
         var root = Path.GetFullPath(folderPath);
