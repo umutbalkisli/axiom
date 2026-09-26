@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { methodSupportsBody, yamlPreview } from '../i18n.js';
+import { methodSupportsBody, toVariableName, yamlPreview } from '../i18n.js';
 import { MethodBadge } from './Badge.jsx';
 import { VariableInput, VariableTextarea } from './VariableField.jsx';
 
@@ -67,8 +67,16 @@ function StepCard({
   updateAssertion,
   removeAssertion,
   aggregations,
+  savedNames,
 }) {
   const patch = (key, value) => updateStep(index, { [key]: value });
+  const listId = `assertion-${index}`;
+  const sources = [
+    ...(step.type === 'request'
+      ? ['status', 'duration_ms', 'body']
+      : ['row_count', 'duration_ms', 'rows']),
+    ...savedNames,
+  ];
   return (
     <article className="card mb-3">
       <div className="card-header d-flex align-items-center justify-content-between">
@@ -99,7 +107,7 @@ function StepCard({
               className="form-control font-monospace"
               value={step.save_as}
               placeholder={t.resultName}
-              onChange={(e) => patch('save_as', e.target.value)}
+              onChange={(e) => patch('save_as', toVariableName(e.target.value))}
             />
           </Field>
           <Field label={t.name} className="col-md-3">
@@ -182,27 +190,26 @@ function StepCard({
         )}
         <div className="mt-4 pt-3" style={{ borderTop: '1px dashed var(--border-muted)' }}>
           <div className="form-label mb-2">{t.addAssertion.replace('+ ', '')}</div>
+          <datalist id={`${listId}-sources`}>
+            {sources.map((name) => (
+              <option key={name} value={name} />
+            ))}
+          </datalist>
           {step.assertions.map((assertion, assertionIndex) => (
             <div
               className="row g-2 mb-2 align-items-center"
               key={`${step.id}-assertion-${assertionIndex}`}
             >
-              <div className="col-md-2">
+              <div className="col-md-5">
                 <input
                   className="form-control font-monospace"
-                  value={assertion.source}
-                  placeholder="source"
+                  list={`${listId}-sources`}
+                  value={assertion.expression}
+                  placeholder={t.assertionValue}
+                  spellCheck={false}
                   onChange={(e) =>
-                    updateAssertion(index, assertionIndex, { source: e.target.value })
+                    updateAssertion(index, assertionIndex, { expression: e.target.value })
                   }
-                />
-              </div>
-              <div className="col-md-3">
-                <input
-                  className="form-control font-monospace"
-                  value={assertion.path}
-                  placeholder="path"
-                  onChange={(e) => updateAssertion(index, assertionIndex, { path: e.target.value })}
                 />
               </div>
               <div className="col-md-2">
@@ -366,6 +373,10 @@ export default function Builder({
                 updateAssertion={updateAssertion}
                 removeAssertion={removeAssertion}
                 aggregations={aggregations}
+                savedNames={test.steps
+                  .slice(0, index)
+                  .map((previous) => previous.save_as)
+                  .filter(Boolean)}
               />
             ))
           ) : (

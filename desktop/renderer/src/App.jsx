@@ -28,8 +28,7 @@ const newStep = (type, index) => ({
   save_as: '',
   assertions: [
     {
-      source: type === 'request' ? 'status' : 'row_count',
-      path: '',
+      expression: type === 'request' ? 'status' : 'row_count',
       operator: type === 'request' ? '==' : '>',
       expected: type === 'request' ? '200' : '0',
     },
@@ -213,18 +212,22 @@ export default function App() {
     setReport(parseReport(output, tests, t));
   };
   const saveSettings = async () => {
-    await api.saveCollectionSettings({
-      folderPath: folder,
-      variables: collection.variables,
-      connections: collection.connections,
-      secrets: Object.fromEntries(
-        Object.entries(collection.secrets).map(([name, reference]) => [
-          name,
-          withLocalKeys(name, reference),
-        ]),
-      ),
-    });
-    setMessage(t.saved);
+    try {
+      await api.saveCollectionSettings({
+        folderPath: folder,
+        variables: collection.variables,
+        connections: collection.connections,
+        secrets: Object.fromEntries(
+          Object.entries(collection.secrets).map(([name, reference]) => [
+            name,
+            withLocalKeys(name, reference),
+          ]),
+        ),
+      });
+      setMessage(t.saved);
+    } catch (error) {
+      window.alert(error.message);
+    }
   };
   const saveLocalSecret = async (name, value) => {
     try {
@@ -255,7 +258,7 @@ export default function App() {
     updateStep(index, {
       assertions: [
         ...test.steps[index].assertions,
-        { source: 'status', path: '', aggregate: '', operator: '==', expected: '200' },
+        { expression: 'status', aggregate: '', operator: '==', expected: '200' },
       ],
     });
   const updateAssertion = (stepIndex, assertionIndex, patch) =>

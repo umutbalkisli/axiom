@@ -168,6 +168,8 @@ steps:
 
 Step types: `request` (`method`, `url`, `query_params`, `headers`, `body`) and `db_query` (`connection`, `sql`, `save_as`).
 
+Variable names (collection and test `variables`, and `save_as`) may contain only letters and underscores (`base_url`, `todo_id`); `secret` is reserved. A collection that breaks this rule fails to load with the offending file and name, and the desktop app rejects such names when saving.
+
 Each step also stores its results in the context as `<step_id>_status`, `<step_id>_duration_ms`, `<step_id>_response_text`, `<step_id>_response_json` (request) and `<step_id>_rows`, `<step_id>_row_count` (DB), so later steps can reference them.
 
 ## Secrets
@@ -222,6 +224,8 @@ Sources:
 - Request step: `status`, `duration_ms`, `body` (parsed JSON when possible)
 - DB step: `row_count`, `duration_ms`, `rows`
 - Any context variable name can also be referenced
+
+In the desktop builder, source and path are typed as one expression, e.g. `body.items.*.price` (the first segment is the source, the rest is the path); the YAML keeps them as separate `source` and `path` fields.
 
 Use `path` (dot-separated, e.g. `items.0.name`) to pick a value out of a source.
 

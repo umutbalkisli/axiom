@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { groupByEndpoint } from '../i18n.js';
+import { groupByEndpoint, toVariableName } from '../i18n.js';
 import { MethodBadge, splitEndpointLabel } from './Badge.jsx';
 
 function entriesFor(collection, key) {
@@ -226,7 +226,7 @@ export default function Overview({
                         setCollection,
                         'variables',
                         key,
-                        event.target.value,
+                        toVariableName(event.target.value),
                         value,
                       )
                     }

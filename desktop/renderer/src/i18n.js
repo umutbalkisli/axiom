@@ -68,6 +68,7 @@ export const translations = {
     url: 'URL',
     sql: 'SQL query',
     addAssertion: '+ Add assertion',
+    assertionValue: 'source.path (e.g. body.items.*.price)',
     aggregation: 'Aggregation',
     aggregationNone: 'no aggregation',
     aggregationHint:
@@ -190,6 +191,7 @@ export const translations = {
     url: 'Adres',
     sql: 'SQL sorgusu',
     addAssertion: '+ Doğrulama ekle',
+    assertionValue: 'kaynak.yol (örn. body.items.*.price)',
     aggregation: 'Toplulaştırma',
     aggregationNone: 'toplulaştırma yok',
     aggregationHint:
@@ -277,14 +279,27 @@ export function normalizeSteps(items) {
     sql: step.sql || '',
     save_as: step.save_as || step.saveAs || '',
     assertions: (step.assert || []).map((a) => ({
-      source: a.source || '',
-      path: a.path || '',
+      expression: [a.source, a.path].filter(Boolean).join('.'),
       aggregate: a.aggregate || '',
       operator: a.operator || '==',
       expected: String(a.expected ?? ''),
     })),
   }));
 }
+// The builder edits an assertion's source and path as one dotted expression (e.g. body.items.*.price).
+// The YAML keeps them separate: the first segment is the source, the rest is the path.
+function splitExpression(expression) {
+  const text = (expression || '').trim();
+  const dot = text.indexOf('.');
+  if (dot < 0) return { source: text, path: undefined };
+  return { source: text.slice(0, dot), path: text.slice(dot + 1) || undefined };
+}
+
+// Variable and result names may contain letters and underscores only.
+export function toVariableName(value) {
+  return value.replace(/[^A-Za-z_]/g, '');
+}
+
 export function toYamlSteps(steps) {
   return steps.map((step) => ({
     id: step.id,
@@ -302,8 +317,7 @@ export function toYamlSteps(steps) {
     sql: step.type === 'db_query' ? step.sql : undefined,
     saveAs: step.save_as || undefined,
     assert: step.assertions.map((a) => ({
-      source: a.source,
-      path: a.path || undefined,
+      ...splitExpression(a.expression),
       aggregate: a.aggregate || undefined,
       operator: a.operator,
       expected: String(a.expected ?? ''),

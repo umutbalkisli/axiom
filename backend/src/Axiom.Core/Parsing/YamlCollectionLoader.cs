@@ -2,6 +2,7 @@ using Axiom.Defaults;
 using Axiom.Models;
 using Microsoft.Data.Sqlite;
 using Axiom.Serialization;
+using Axiom.Validation;
 
 namespace Axiom.Parsing;
 
@@ -18,6 +19,7 @@ public sealed class YamlCollectionLoader
 
         var collection = DeserializeFile<CollectionDefinition>(collectionPath);
         NormalizeCollection(collection, root);
+        EnsureValidVariableNames(collection.Variables.Keys, collectionPath);
 
         var testsPath = CollectionPaths.TestsDirectory(root);
         if (!Directory.Exists(testsPath))
@@ -36,6 +38,9 @@ public sealed class YamlCollectionLoader
                              {
                                 var test = DeserializeFile<TestCaseDefinition>(path);
                                 NormalizeTest(test, path);
+                                EnsureValidVariableNames(
+                                    test.Variables.Keys.Concat(test.Steps.Select(s => s.SaveAs).OfType<string>().Where(n => n.Length > 0)),
+                                    path);
                                 return test;
                              })
                              .ToList();
@@ -46,6 +51,17 @@ public sealed class YamlCollectionLoader
             TestCases = tests,
             RootPath = root,
         };
+    }
+
+    private static void EnsureValidVariableNames(IEnumerable<string> names, string filePath)
+    {
+        foreach (var name in names)
+        {
+            if (VariableName.Check(name) is { } problem)
+            {
+                throw new InvalidOperationException($"{filePath}: {problem}");
+            }
+        }
     }
 
     private T DeserializeFile<T>(string path)

@@ -28,6 +28,8 @@ public sealed class TestCaseValidator
             errors.Add(new FieldError("endpoint", "Endpoint is required."));
         }
 
+        errors.AddRange(CollectionSettingsValidator.ValidateVariables(request.Variables));
+
         if (request.Steps.Count == 0)
         {
             errors.Add(new FieldError("steps", "At least one step is required."));
@@ -49,6 +51,11 @@ public sealed class TestCaseValidator
         if (string.IsNullOrWhiteSpace(step.Id))
         {
             errors.Add(new FieldError($"{prefix}.id", "Step id is required."));
+        }
+
+        if (!string.IsNullOrEmpty(step.SaveAs) && VariableName.Check(step.SaveAs) is { } saveAsProblem)
+        {
+            errors.Add(new FieldError($"{prefix}.saveAs", saveAsProblem));
         }
 
         if (step.Type is null || !_stepValidators.TryGetValue(step.Type.Trim(), out var validator))

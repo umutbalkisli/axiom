@@ -6,7 +6,11 @@ namespace Axiom.Validation;
 public static partial class CollectionSettingsValidator
 {
     public static List<FieldError> ValidateVariables(Dictionary<string, object?> variables) =>
-        ValidateKeys(variables.Keys, "variables", "Variable key cannot be empty.");
+        variables.Keys
+            .Select(VariableName.Check)
+            .OfType<string>()
+            .Select(problem => new FieldError("variables", problem))
+            .ToList();
 
     public static List<FieldError> ValidateConnections(Dictionary<string, object?> connections) =>
         ValidateKeys(connections.Keys, "connections", "Connection name cannot be empty.");
