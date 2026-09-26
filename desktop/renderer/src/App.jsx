@@ -17,6 +17,8 @@ import {
 
 const api = window.axiomApi;
 const RECENT_KEY = 'axiom-recent';
+// The collection that was open when the app last closed; cleared when the user closes it.
+const LAST_OPEN_KEY = 'axiom-last-open';
 
 const newStep = (type, index) => ({
   id: `${type}_${index}`,
@@ -168,6 +170,7 @@ export default function App() {
   const remember = (folderPath) => {
     const next = [folderPath, ...readRecent().filter((item) => item !== folderPath)].slice(0, 6);
     localStorage.setItem(RECENT_KEY, JSON.stringify(next));
+    localStorage.setItem(LAST_OPEN_KEY, folderPath);
     setRecent(next);
   };
 
@@ -193,7 +196,7 @@ export default function App() {
 
   // Reopen the last collection on launch.
   useEffect(() => {
-    const [last] = readRecent();
+    const last = localStorage.getItem(LAST_OPEN_KEY);
     if (!last) return;
     api.checkFolder({ folderPath: last }).then((state) => {
       if (state.exists && state.hasCollection) showFolder(last, true);
@@ -217,6 +220,25 @@ export default function App() {
       return;
     }
     await showFolder(path, true);
+  };
+  const closeCollection = () => {
+    localStorage.removeItem(LAST_OPEN_KEY);
+    setFolder(null);
+    setHasCollection(false);
+    setCollection(toCollectionState(null));
+    setSavedCollection(JSON.stringify(toCollectionState(null)));
+    setCollectionName('');
+    setTests([]);
+    setShared([]);
+    setLocalSecretNames([]);
+    setActiveFile(null);
+    setEditKind('test');
+    setTest(emptyTest());
+    setSavedTest(JSON.stringify(emptyTest()));
+    setReport(null);
+    setRawOutput('');
+    setCollectionTab('tests');
+    setView('collection');
   };
   const openSetup = (mode) => {
     setSetupMode(mode);
@@ -520,6 +542,7 @@ export default function App() {
         view={view}
         openFolder={guarded(openFolder)}
         openCollectionSetup={guarded(() => openSetup('empty'))}
+        closeCollection={guarded(closeCollection)}
         openTest={(fileName) => guarded(() => openTest(fileName))()}
         newTest={guarded(newTest)}
         goToCollection={goToCollection}

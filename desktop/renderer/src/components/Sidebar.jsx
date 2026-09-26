@@ -38,6 +38,7 @@ export default function Sidebar({
   view,
   openFolder,
   openCollectionSetup,
+  closeCollection,
   openTest,
   newTest,
   goToCollection,
@@ -82,6 +83,16 @@ export default function Sidebar({
           <button type="button" className="btn btn-ghost btn-sm" onClick={openCollectionSetup}>
             <Icon name="plus" size={14} /> {t.newShort}
           </button>
+          {hasCollection && (
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm"
+              title={t.closeCollection}
+              onClick={closeCollection}
+            >
+              <Icon name="x" size={14} /> {t.closeShort}
+            </button>
+          )}
         </div>
       </div>
 
