@@ -54,8 +54,22 @@ public sealed class RequestStepExecutor(HttpClient httpClient, AssertionEngine a
         variables[$"{step.Id}_duration_ms"] = watch.Elapsed.TotalMilliseconds;
         variables[$"{step.Id}_response_text"] = responseBody;
 
+        // Response and content headers together, looked up case-insensitively (headers.content-type).
+        var responseHeaders = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
+        foreach (var header in response.Headers.Concat(response.Content.Headers))
+        {
+            responseHeaders[header.Key] = string.Join(", ", header.Value);
+        }
+
+        variables[$"{step.Id}_headers"] = responseHeaders;
+
         // The body is only parsed as JSON if an assertion or a later step reads it.
-        var responseJson = new LazyJson(responseBody);
+        var responseJson = new LazyJson(responseBody, new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["status"] = statusCode,
+            ["duration_ms"] = watch.Elapsed.TotalMilliseconds,
+            ["headers"] = responseHeaders,
+        });
         variables[$"{step.Id}_response_json"] = responseJson;
 
         if (!string.IsNullOrWhiteSpace(step.SaveAs))
@@ -69,6 +83,7 @@ public sealed class RequestStepExecutor(HttpClient httpClient, AssertionEngine a
             "duration_ms" => watch.Elapsed.TotalMilliseconds,
             "body" or "response_body" => responseJson,
             "body_text" => responseBody,
+            "headers" => responseHeaders,
             _ => variables.TryGetValue(source, out var value) ? value : null,
         });
 

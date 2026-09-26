@@ -289,6 +289,9 @@ export function normalizeSteps(items) {
     assertions: (step.assert || []).map((a) => ({
       expression: [a.source, a.path].filter(Boolean).join('.'),
       aggregate: a.aggregate || '',
+      strict: Boolean(a.strict),
+      caseSensitive: Boolean(a.caseSensitive ?? a.case_sensitive),
+      tolerance: a.tolerance == null ? '' : String(a.tolerance),
       operator: a.operator || '==',
       expected: String(a.expected ?? ''),
     })),
@@ -328,6 +331,12 @@ export function toYamlSteps(steps) {
     assert: step.assertions.map((a) => ({
       ...splitExpression(a.expression),
       aggregate: a.aggregate || undefined,
+      strict: a.strict || undefined,
+      caseSensitive: a.caseSensitive || undefined,
+      tolerance:
+        a.operator === 'approx' && a.tolerance !== '' && !Number.isNaN(Number(a.tolerance))
+          ? Number(a.tolerance)
+          : undefined,
       operator: a.operator,
       expected: String(a.expected ?? ''),
     })),

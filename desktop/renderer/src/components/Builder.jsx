@@ -5,19 +5,25 @@ import Icon from './Icons.jsx';
 import { VariableInput, VariableTextarea } from './VariableField.jsx';
 
 const METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'];
-const OPERATORS = [
-  ['==', '=='],
-  ['!=', '!='],
-  ['>', '>'],
-  ['>=', '>='],
-  ['<', '<'],
-  ['<=', '<='],
-  ['contains', 'contains'],
-  ['not_contains', 'not_contains'],
-  ['exists', 'exists'],
-  ['not_exists', 'not_exists'],
+// Operator values as written in YAML, grouped for the picker. Labels come from t.operatorLabels.
+const OPERATOR_GROUPS = [
+  ['opGroupCompare', ['==', '!=', '>', '>=', '<', '<=', 'approx']],
+  ['opGroupText', ['contains', 'not_contains', 'starts_with', 'ends_with', 'matches']],
+  ['opGroupList', ['in', 'not_in']],
+  [
+    'opGroupPresence',
+    ['exists', 'not_exists', 'is_null', 'is_missing', 'is_empty', 'is_not_empty', 'is_type'],
+  ],
 ];
-const NO_EXPECTED = new Set(['exists', 'not_exists']);
+const NO_EXPECTED = new Set([
+  'exists',
+  'not_exists',
+  'is_null',
+  'is_missing',
+  'is_empty',
+  'is_not_empty',
+]);
+const VALUE_TYPES = ['string', 'number', 'boolean', 'array', 'object', 'null'];
 
 function Field({ label, hint, className = '', children }) {
   return (
@@ -70,12 +76,144 @@ function KeyValueEditor({ t, rows, onChange, keyPlaceholder, valuePlaceholder, a
   );
 }
 
+function AssertionRow({ t, assertion, listId, aggregations, update, remove }) {
+  const [showOptions, setShowOptions] = useState(false);
+  const operator = assertion.operator;
+  const hasOptions = Boolean(assertion.strict || assertion.caseSensitive || assertion.tolerance);
+  return (
+    <div className="assertion-item">
+      <div className="assertion-row">
+        <input
+          className="form-control font-monospace"
+          list={listId}
+          value={assertion.expression}
+          placeholder={t.assertionValue}
+          aria-label={t.assertionCheck}
+          spellCheck={false}
+          onChange={(event) => update({ expression: event.target.value })}
+        />
+        <select
+          className="form-select"
+          aria-label={t.aggregation}
+          title={t.aggregationHint}
+          value={assertion.aggregate || ''}
+          onChange={(event) => update({ aggregate: event.target.value })}
+        >
+          <option value="">{t.aggregationNone}</option>
+          {aggregations.map((name) => (
+            <option key={name} value={name}>
+              {name}
+            </option>
+          ))}
+        </select>
+        <select
+          className="form-select"
+          aria-label={t.operator}
+          value={operator}
+          onChange={(event) => update({ operator: event.target.value })}
+        >
+          {OPERATOR_GROUPS.map(([group, operators]) => (
+            <optgroup key={group} label={t[group]}>
+              {operators.map((value) => (
+                <option key={value} value={value}>
+                  {t.operatorLabels?.[value] || value}
+                </option>
+              ))}
+            </optgroup>
+          ))}
+        </select>
+        {operator === 'is_type' ? (
+          <select
+            className="form-select"
+            aria-label={t.expected}
+            value={assertion.expected || 'string'}
+            onChange={(event) => update({ expected: event.target.value })}
+          >
+            {VALUE_TYPES.map((type) => (
+              <option key={type} value={type}>
+                {t.valueTypes?.[type] || type}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <VariableInput
+            value={NO_EXPECTED.has(operator) ? '' : assertion.expected}
+            disabled={NO_EXPECTED.has(operator)}
+            placeholder={
+              NO_EXPECTED.has(operator)
+                ? '—'
+                : ({
+                    in: t.expectedListPlaceholder,
+                    not_in: t.expectedListPlaceholder,
+                    matches: t.expectedRegexPlaceholder,
+                  }[operator] ?? t.expected)
+            }
+            onChange={(event) => update({ expected: event.target.value })}
+          />
+        )}
+        <button
+          type="button"
+          className={`btn-icon ${showOptions || hasOptions ? 'active' : ''}`}
+          aria-label={t.assertionOptions}
+          aria-expanded={showOptions}
+          title={t.assertionOptions}
+          onClick={() => setShowOptions(!showOptions)}
+        >
+          <Icon name="sliders" size={14} />
+        </button>
+        <button
+          type="button"
+          className="btn-icon danger"
+          aria-label={t.remove}
+          title={t.remove}
+          onClick={remove}
+        >
+          <Icon name="x" size={14} />
+        </button>
+      </div>
+      {showOptions && (
+        <div className="assertion-options">
+          <label className="check" title={t.caseSensitiveHint}>
+            <input
+              type="checkbox"
+              checked={Boolean(assertion.caseSensitive)}
+              onChange={(event) => update({ caseSensitive: event.target.checked })}
+            />
+            {t.caseSensitive}
+          </label>
+          <label className="check" title={t.strictTypesHint}>
+            <input
+              type="checkbox"
+              checked={Boolean(assertion.strict)}
+              onChange={(event) => update({ strict: event.target.checked })}
+            />
+            {t.strictTypes}
+          </label>
+          {operator === 'approx' && (
+            <label className="check">
+              {t.tolerance}
+              <input
+                className="form-control tolerance-input"
+                inputMode="decimal"
+                value={assertion.tolerance ?? ''}
+                placeholder="0.01"
+                onChange={(event) => update({ tolerance: event.target.value })}
+              />
+            </label>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AssertionsEditor({
   t,
   step,
   index,
   aggregations,
   savedNames,
+  savedResponseNames,
   variableNames,
   addAssertion,
   updateAssertion,
@@ -85,10 +223,16 @@ function AssertionsEditor({
   // (and by this step itself), and the collection / test variables.
   const sources = [
     ...(step.type === 'request'
-      ? ['status', 'duration_ms', 'body', 'body_text']
+      ? ['status', 'duration_ms', 'body', 'body_text', 'headers']
       : ['row_count', 'duration_ms', 'rows']
     ).map((name) => [name, t.sourceResult]),
     ...savedNames.map((name) => [name, t.sourceSaved]),
+    // A saved response also exposes the HTTP response itself under @http, apart from its body fields.
+    ...savedResponseNames.flatMap((name) => [
+      [`${name}.@http.headers`, t.sourceSaved],
+      [`${name}.@http.status`, t.sourceSaved],
+      [`${name}.@http.duration_ms`, t.sourceSaved],
+    ]),
     ...variableNames.map((name) => [name, t.sourceVariable]),
   ].filter(([name], position, all) => all.findIndex(([other]) => other === name) === position);
   const listId = `assertion-${index}-sources`;
@@ -114,68 +258,18 @@ function AssertionsEditor({
             <span>{t.operator}</span>
             <span>{t.expected}</span>
             <span />
+            <span />
           </div>
           {step.assertions.map((assertion, assertionIndex) => (
-            <div className="assertion-row" key={assertionIndex}>
-              <input
-                className="form-control font-monospace"
-                list={listId}
-                value={assertion.expression}
-                placeholder={t.assertionValue}
-                aria-label={t.assertionCheck}
-                spellCheck={false}
-                onChange={(event) =>
-                  updateAssertion(index, assertionIndex, { expression: event.target.value })
-                }
-              />
-              <select
-                className="form-select"
-                aria-label={t.aggregation}
-                title={t.aggregationHint}
-                value={assertion.aggregate || ''}
-                onChange={(event) =>
-                  updateAssertion(index, assertionIndex, { aggregate: event.target.value })
-                }
-              >
-                <option value="">{t.aggregationNone}</option>
-                {aggregations.map((name) => (
-                  <option key={name} value={name}>
-                    {name}
-                  </option>
-                ))}
-              </select>
-              <select
-                className="form-select"
-                aria-label={t.operator}
-                value={assertion.operator}
-                onChange={(event) =>
-                  updateAssertion(index, assertionIndex, { operator: event.target.value })
-                }
-              >
-                {OPERATORS.map(([value, label]) => (
-                  <option key={value} value={value}>
-                    {t.operatorLabels?.[value] || label}
-                  </option>
-                ))}
-              </select>
-              <VariableInput
-                value={NO_EXPECTED.has(assertion.operator) ? '' : assertion.expected}
-                disabled={NO_EXPECTED.has(assertion.operator)}
-                placeholder={NO_EXPECTED.has(assertion.operator) ? '—' : t.expected}
-                onChange={(event) =>
-                  updateAssertion(index, assertionIndex, { expected: event.target.value })
-                }
-              />
-              <button
-                type="button"
-                className="btn-icon danger"
-                aria-label={t.remove}
-                title={t.remove}
-                onClick={() => removeAssertion(index, assertionIndex)}
-              >
-                <Icon name="x" size={14} />
-              </button>
-            </div>
+            <AssertionRow
+              key={assertionIndex}
+              t={t}
+              assertion={assertion}
+              listId={listId}
+              aggregations={aggregations}
+              update={(patch) => updateAssertion(index, assertionIndex, patch)}
+              remove={() => removeAssertion(index, assertionIndex)}
+            />
           ))}
         </div>
       )}
@@ -660,6 +754,11 @@ export default function Builder({
             savedNames={test.steps
               .slice(0, index + 1)
               .flatMap(providedBy)
+              .filter(Boolean)}
+            savedResponseNames={test.steps
+              .slice(0, index + 1)
+              .filter((previous) => previous.type === 'request')
+              .map((previous) => previous.save_as)
               .filter(Boolean)}
             variableNames={variableNames}
           />

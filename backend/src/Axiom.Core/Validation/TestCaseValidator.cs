@@ -8,9 +8,11 @@ public sealed class TestCaseValidator
 {
     private readonly Dictionary<string, IStepValidator> _stepValidators;
     private readonly HashSet<string> _aggregations;
+    private readonly HashSet<string> _operators;
 
-    public TestCaseValidator(IEnumerable<IStepValidator> stepValidators, IEnumerable<IAssertionAggregation> aggregations)
+    public TestCaseValidator(IEnumerable<IStepValidator> stepValidators, IEnumerable<IAssertionAggregation> aggregations, IEnumerable<IAssertionOperator> operators)
     {
+        _operators = operators.Select(o => o.Name).ToHashSet(StringComparer.Ordinal);
         _stepValidators = stepValidators.ToDictionary(v => v.StepType, StringComparer.OrdinalIgnoreCase);
         _aggregations = aggregations.Select(a => a.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
     }
@@ -124,6 +126,10 @@ public sealed class TestCaseValidator
         if (string.IsNullOrWhiteSpace(assertion.Operator))
         {
             errors.Add(new FieldError($"{assertionPrefix}.operator", "Assertion operator is required."));
+        }
+        else if (!_operators.Contains(assertion.Operator.Trim()))
+        {
+            errors.Add(new FieldError($"{assertionPrefix}.operator", $"Unknown operator '{assertion.Operator}'. Use one of: {string.Join(", ", _operators)}."));
         }
 
         if (!string.IsNullOrWhiteSpace(assertion.Aggregate) && !_aggregations.Contains(assertion.Aggregate.Trim()))

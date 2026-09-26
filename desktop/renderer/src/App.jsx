@@ -36,6 +36,9 @@ const newStep = (type, index) => ({
     {
       expression: type === 'request' ? 'status' : 'row_count',
       aggregate: '',
+      strict: false,
+      caseSensitive: false,
+      tolerance: '',
       operator: type === 'request' ? '==' : '>',
       expected: type === 'request' ? '200' : '0',
     },
@@ -502,7 +505,15 @@ export default function App() {
     updateStep(index, {
       assertions: [
         ...test.steps[index].assertions,
-        { expression: 'status', aggregate: '', operator: '==', expected: '200' },
+        {
+          expression: 'status',
+          aggregate: '',
+          strict: false,
+          caseSensitive: false,
+          tolerance: '',
+          operator: '==',
+          expected: '200',
+        },
       ],
     });
   const updateAssertion = (stepIndex, assertionIndex, patch) =>

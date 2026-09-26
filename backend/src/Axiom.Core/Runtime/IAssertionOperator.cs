@@ -12,5 +12,5 @@ public interface IAssertionOperator
     /// </summary>
     bool SearchesRawText => false;
 
-    bool Evaluate(object? actual, object? expected);
+    bool Evaluate(object? actual, object? expected, ComparisonOptions options);
 }

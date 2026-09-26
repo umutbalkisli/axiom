@@ -270,11 +270,22 @@ Provider connection settings come only from the environment, never from collecti
 
 Sources:
 
-- Request step: `status`, `duration_ms`, `body` (parsed JSON when possible, otherwise text), `body_text` (the raw response text)
+- Request step: `status`, `duration_ms`, `body` (parsed JSON when possible, otherwise text), `body_text` (the raw response text), `headers` (response headers, looked up case-insensitively: `source: headers`, `path: content-type`)
 - DB step: `row_count`, `duration_ms`, `rows`
 - Any context variable name can also be referenced
 
 In the desktop builder, source and path are typed as one expression, e.g. `body.items.*.price` (the first segment is the source, the rest is the path); the YAML keeps them as separate `source` and `path` fields.
+
+A step's **saved result** (`save_as: my_response`) works as a source and in templates. Its plain names are the fields of the response body: `my_response.items.0.name`. The HTTP response itself lives under `@http`, which can never clash with a body field:
+
+| Path | Value |
+| --- | --- |
+| `my_response.@http.status` | the HTTP status code |
+| `my_response.@http.headers.content-type` | a response header (names are case-insensitive) |
+| `my_response.@http.duration_ms` | how long the request took |
+| `my_response.@http.body_text` | the raw response text |
+
+Templates work the same way: `{{my_response.@http.headers.x-request-id}}` in a URL, header or body. In YAML, quote a path that starts with `@` (`path: "@http.status"`); the builder does this for you. Inside the same step, the plain `status`, `headers` and `body_text` sources are also available.
 
 Use `path` (dot-separated, e.g. `items.0.name`) to pick a value out of a source.
 
@@ -309,7 +320,34 @@ Aggregations fail with a clear message instead of guessing: a missing value or a
 
 Operators:
 
-- `==`, `!=`, `>`, `>=`, `<`, `<=`, `contains`, `not_contains`, `exists`, `not_exists`
+| Group | Operators |
+| --- | --- |
+| Compare | `==`, `!=`, `>`, `>=`, `<`, `<=`, `approx` (within `tolerance` of the expected number) |
+| Text | `contains`, `not_contains`, `starts_with`, `ends_with`, `matches` (regular expression, found anywhere in the text; anchor with `^` and `$`) |
+| List | `in`, `not_in` (expected is a list: `[200, 201]`, JSON text, or `200, 201`) |
+| Presence and type | `exists` (has a non-null value), `not_exists`, `is_null` (present and null), `is_missing` (the path does not exist), `is_empty`, `is_not_empty`, `is_type` (`string`, `number`, `boolean`, `array`, `object`, `null`) |
+
+Unknown operators are rejected when a test is saved.
+
+Per-assertion options change how the comparison behaves:
+
+```yaml
+- source: body
+  path: code
+  operator: "=="
+  expected: "200"
+  strict: true          # no type coercion: the text "200" is not the number 200
+- source: body
+  path: name
+  operator: "=="
+  expected: Ann
+  case_sensitive: true  # default: text comparisons ignore case
+- source: body
+  path: price
+  operator: approx
+  expected: 10
+  tolerance: 0.05
+```
 
 String comparisons are case-insensitive, and numeric values are compared numerically.
 

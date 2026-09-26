@@ -93,6 +93,14 @@ const PATHS = {
     </>
   ),
   spinner: <path d="M12 3a9 9 0 019 9" />,
+  sliders: (
+    <>
+      <path d="M4 7h10M18 7h2M4 12h4M12 12h8M4 17h10M18 17h2" />
+      <circle cx="16" cy="7" r="2" />
+      <circle cx="10" cy="12" r="2" />
+      <circle cx="16" cy="17" r="2" />
+    </>
+  ),
   swap: <path d="M7 4L3 8l4 4M3 8h14M17 20l4-4-4-4M21 16H7" />,
 };
 

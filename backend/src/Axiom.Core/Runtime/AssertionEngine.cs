@@ -28,14 +28,15 @@ public sealed class AssertionEngine
         foreach (var assertion in step.Assert)
         {
             var source = sourceResolver(assertion.Source);
-            results.Add(Evaluate(assertion, ReadValue(assertion, source), context));
+            var actual = ReadValue(assertion, source, out var found);
+            results.Add(Evaluate(assertion, actual, context, found));
         }
 
         return results;
     }
 
     /// <summary>The value an assertion looks at: the path applied to the source, or the raw text for a text search over a whole response body.</summary>
-    private object? ReadValue(AssertionDefinition assertion, object? source)
+    private object? ReadValue(AssertionDefinition assertion, object? source, out bool found)
     {
         if (source is LazyJson body
             && string.IsNullOrWhiteSpace(assertion.Path)
@@ -43,14 +44,18 @@ public sealed class AssertionEngine
             && _operators.TryGetValue(assertion.Operator.Trim(), out var comparison)
             && comparison.SearchesRawText)
         {
+            found = true;
             return body.Text;
         }
 
-        return TemplateResolver.ResolveFrom(source, assertion.Path);
+        found = TemplateResolver.TryResolveFrom(source, assertion.Path, out var value);
+        return value;
     }
 
-    public AssertionResult Evaluate(AssertionDefinition assertion, object? actualValue, IReadOnlyDictionary<string, object?> context)
+    /// <param name="found">False when the source or path did not exist (as opposed to being present with a null value).</param>
+    public AssertionResult Evaluate(AssertionDefinition assertion, object? actualValue, IReadOnlyDictionary<string, object?> context, bool found = true)
     {
+        var options = new ComparisonOptions(assertion.Strict, assertion.CaseSensitive, assertion.Tolerance ?? 0, IsMissing: !found);
         var expected = ResolveExpected(assertion.Expected, context);
         var operatorName = assertion.Operator.Trim();
 
@@ -60,7 +65,8 @@ public sealed class AssertionEngine
             Path = assertion.Path,
             Aggregate = assertion.Aggregate,
             Operator = operatorName,
-            Expected = expected,
+            // A list given as the expected value (for example for "in") is shown as JSON rather than its type name.
+            Expected = expected is System.Collections.IEnumerable and not string ? JsonSerializer.Serialize(expected) : expected,
             // A list collected by a wildcard path is shown as JSON rather than its type name.
             Actual = actual is List<object?> list ? JsonSerializer.Serialize(list) : actual,
             Passed = passed,
@@ -75,7 +81,7 @@ public sealed class AssertionEngine
             }
 
             var actual = Aggregate(assertion.Aggregate, actualValue);
-            var passed = comparison.Evaluate(actual, expected);
+            var passed = comparison.Evaluate(actual, expected, options);
 
             return Result(actual, passed, passed ? null : $"Expected '{operatorName}' with value '{ValueComparison.Preview(expected)}', actual '{ValueComparison.Preview(actual)}'");
         }
