@@ -102,6 +102,7 @@ internal static class HostServerService
             Results.Ok(new { aggregations = aggregations.Select(a => a.Name) }));
         app.MapPost("/api/tests", SaveTestAsync);
         app.MapPost("/api/tests/preview", PreviewStepAsync);
+        app.MapPost("/api/tests/{fileName}/clone", CloneTestAsync);
 
         app.MapGet("/api/shared", (string folderPath, CollectionManagementService manager) =>
             Results.Ok(new { shared = manager.ListShared(folderPath) }));
@@ -252,6 +253,20 @@ internal static class HostServerService
         try
         {
             var result = manager.SaveTest(folderPath, payload);
+            return Results.Ok(new { result.FilePath, result.FileName });
+        }
+        catch (ArgumentException ex)
+        {
+            return Results.BadRequest(new { message = ex.Message });
+        }
+    }
+
+    private static async Task<IResult> CloneTestAsync(HttpRequest request, string folderPath, string fileName, CollectionManagementService manager, CancellationToken cancellationToken)
+    {
+        var payload = await request.ReadFromJsonAsync<ClonePayload>(cancellationToken);
+        try
+        {
+            var result = manager.CloneTest(folderPath, fileName, payload?.Name ?? string.Empty);
             return Results.Ok(new { result.FilePath, result.FileName });
         }
         catch (ArgumentException ex)
@@ -451,6 +466,8 @@ internal static class HostServerService
     private sealed record PreviewPayload(SaveTestCaseRequest? Test, int StepIndex, Dictionary<string, string>? LocalSecrets, string? Environment);
 
     private sealed record InitCollectionPayload(string CollectionName);
+
+    private sealed record ClonePayload(string? Name);
 
     private sealed record OpenApiImportPayload(string CollectionName, string SpecificationUrl);
 }

@@ -1,4 +1,4 @@
-const { app, BrowserWindow, dialog, ipcMain, safeStorage } = require('electron');
+const { app, BrowserWindow, Menu, dialog, ipcMain, safeStorage } = require('electron');
 const { spawn } = require('node:child_process');
 const crypto = require('node:crypto');
 const fs = require('node:fs');
@@ -276,6 +276,36 @@ ipcMain.handle('save-test-case', async (_, payload) => {
     },
   );
 });
+
+ipcMain.handle('clone-test', async (_, payload) =>
+  hostRequest(
+    'POST',
+    `/api/tests/${encodeURIComponent(payload.fileName)}/clone`,
+    { folderPath: payload.folderPath },
+    { name: payload.name },
+  ),
+);
+
+// Shows a native context menu built from `items` ({ id, label, enabled } or { separator: true }) and
+// resolves with the id of the chosen item, or null when the menu is dismissed.
+ipcMain.handle(
+  'show-context-menu',
+  (event, items) =>
+    new Promise((resolve) => {
+      const menu = Menu.buildFromTemplate(
+        items.map((item) =>
+          item.separator
+            ? { type: 'separator' }
+            : { label: item.label, enabled: item.enabled !== false, click: () => resolve(item.id) },
+        ),
+      );
+      // The close callback can fire before the click handler; let a click win.
+      menu.popup({
+        window: BrowserWindow.fromWebContents(event.sender),
+        callback: () => setTimeout(() => resolve(null), 0),
+      });
+    }),
+);
 
 ipcMain.handle('delete-test-case', async (_, payload) => {
   return hostRequest('DELETE', `/api/tests/${encodeURIComponent(payload.fileName)}`, {

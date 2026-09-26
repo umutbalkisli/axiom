@@ -4,6 +4,7 @@ using Axiom.Parsing;
 using Axiom.Runtime;
 using Axiom.Serialization;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Text.Json;
 
 namespace Axiom.Services;
@@ -11,7 +12,7 @@ namespace Axiom.Services;
 /// <summary>
 /// Reads and writes the editable parts of a collection: settings, tests and shared steps.
 /// </summary>
-public sealed class CollectionManagementService
+public sealed partial class CollectionManagementService
 {
     /// <summary>
     /// Reads <c>collection.yaml</c>; null when the folder has none.
@@ -379,6 +380,48 @@ public sealed class CollectionManagementService
     {
         public string? Name { get; set; }
     }
+
+    /// <summary>
+    /// Copies a test to a new file named after <paramref name="name"/>, as a starting point for a variation. The file
+    /// is copied as it is and only its top-level <c>name:</c> changes, so comments, formatting and keys the editor
+    /// does not know survive. Throws <see cref="ArgumentException"/> when the test does not exist or the name is empty.
+    /// </summary>
+    public (string FilePath, string FileName) CloneTest(string folderPath, string fileName, string name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            throw new ArgumentException("A name is required.", nameof(name));
+        }
+
+        var sourcePath = CollectionPaths.TestFile(folderPath, fileName);
+        if (!File.Exists(sourcePath))
+        {
+            throw new ArgumentException($"Test '{fileName}' does not exist.", nameof(fileName));
+        }
+
+        var targetName = UniqueFileName(folderPath, CollectionPaths.Tests, name.Trim(), excluding: null);
+        var targetPath = CollectionPaths.File(folderPath, CollectionPaths.Tests, targetName);
+        File.WriteAllText(targetPath, WithName(File.ReadAllText(sourcePath), name.Trim()));
+        return (targetPath, targetName);
+    }
+
+    /// <summary>
+    /// The YAML text with its top-level <c>name:</c> set to <paramref name="name"/>, leaving every other line untouched.
+    /// </summary>
+    private static string WithName(string yaml, string name)
+    {
+        var line = "name: " + YamlSerialization.Serializer.Serialize(name).TrimEnd();
+        var existing = TopLevelName().Match(yaml);
+        return existing.Success
+            ? yaml[..existing.Index] + line + yaml[(existing.Index + existing.Length)..]
+            : line + Environment.NewLine + yaml;
+    }
+
+    /// <summary>
+    /// A top-level <c>name:</c> key with its value, including continuation lines of a multi-line value.
+    /// </summary>
+    [GeneratedRegex(@"^name:[^\r\n]*(?:\r?\n[ \t]+[^\r\n]*)*", RegexOptions.Multiline)]
+    private static partial Regex TopLevelName();
 
     /// <summary>
     /// Deletes a test file; does nothing when it does not exist.

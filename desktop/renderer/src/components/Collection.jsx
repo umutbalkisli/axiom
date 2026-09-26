@@ -39,7 +39,17 @@ function Tabs({ tabs, active, onChange }) {
   );
 }
 
-function TestsTab({ t, tests, runStatus, openTest, runTest, running, newTest, openImport }) {
+function TestsTab({
+  t,
+  tests,
+  runStatus,
+  openTest,
+  runTest,
+  testMenu,
+  running,
+  newTest,
+  openImport,
+}) {
   const groups = groupByEndpoint(tests, t);
   if (!tests.length) {
     return (
@@ -72,7 +82,14 @@ function TestsTab({ t, tests, runStatus, openTest, runTest, running, newTest, op
             </div>
             <div className="list-card">
               {group.items.map((item) => (
-                <div className="list-row-line" key={item.fileName}>
+                <div
+                  className="list-row-line"
+                  key={item.fileName}
+                  onContextMenu={(event) => {
+                    event.preventDefault();
+                    testMenu(item.fileName);
+                  }}
+                >
                   <button
                     type="button"
                     className="list-row"
@@ -555,6 +572,7 @@ export default function Collection({
   runStatus,
   openTest,
   runTest,
+  testMenu,
   running,
   newTest,
   shared,
@@ -611,6 +629,7 @@ export default function Collection({
             runStatus={runStatus}
             openTest={openTest}
             runTest={runTest}
+            testMenu={testMenu}
             running={running}
             newTest={newTest}
             openImport={openImport}

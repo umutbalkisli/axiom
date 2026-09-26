@@ -153,4 +153,21 @@ public sealed class HostServerTests : IAsyncLifetime
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
+
+    [Fact]
+    public async Task A_test_can_be_cloned_under_a_new_name()
+    {
+        using var folder = new TempFolder();
+        folder.Write("tests/a.test.yaml", "# note\nname: A\nsteps: []\n");
+        var route = $"/api/tests/a.test.yaml/clone?folderPath={Uri.EscapeDataString(folder.Path)}";
+
+        using var response = await _client.SendAsync(Request(HttpMethod.Post, route, body: new { name = "A (copy)" }));
+        var clone = JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement;
+        using var missing = await _client.SendAsync(Request(HttpMethod.Post, route.Replace("a.test.yaml", "b.test.yaml"), body: new { name = "B" }));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("a-copy.test.yaml", clone.GetProperty("fileName").GetString());
+        Assert.Equal("# note\nname: A (copy)\nsteps: []\n", folder.Read("tests/a-copy.test.yaml"));
+        Assert.Equal(HttpStatusCode.BadRequest, missing.StatusCode);
+    }
 }

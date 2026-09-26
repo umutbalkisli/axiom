@@ -619,6 +619,7 @@ export default function Builder({
   kind = 'test',
   sharedList = [],
   runTest,
+  cloneTest,
   running,
   previewStep,
 }) {
@@ -727,6 +728,16 @@ export default function Builder({
             onClick={runTest}
           >
             <Icon name="play" size={14} /> {t.runTest}
+          </button>
+        )}
+        {cloneTest && (
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm"
+            title={t.cloneTestHint}
+            onClick={cloneTest}
+          >
+            <Icon name="copy" size={14} /> {t.cloneTest}
           </button>
         )}
         {!isNew && (

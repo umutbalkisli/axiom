@@ -17,6 +17,7 @@ Axiom is an API test platform and it's designed to write tests without using a p
   - import a collection from an OpenAPI/Swagger URL
   - edit collection variables and run settings
   - create, edit, reorder and delete test steps with a visual builder (unsaved-changes tracking, collapsible steps)
+  - right-click a test (or **Clone** in the builder) to copy it as a starting point for a variation: the file is copied as it is, comments included, and only its name changes (`Get user (copy)`)
   - **Send** a single step while building a test: the steps up to it run as they are in the editor (saved or not), and it shows what was sent (method, full URL, headers and body, or the SQL; opened by itself when the call fails, with **Copy as cURL**) and what came back (status, headers, JSON body, or SQL rows); click any value to add a check for it
   - run the whole collection, one test, or only the tests that failed last time; results appear as each test finishes, and a run can be cancelled
   - see, per test, which step and assertion failed and why (expected vs actual)
@@ -120,6 +121,7 @@ Every request must carry `Authorization: Bearer <token>`; anything else gets `40
 | GET | `/api/tests` | List test scenarios |
 | GET | `/api/tests/{fileName}` | Read one scenario |
 | POST | `/api/tests` | Create or update a scenario |
+| POST | `/api/tests/{fileName}/clone` | Copy a scenario to a new file under a new name (body: `name`); only its `name:` line changes |
 | DELETE | `/api/tests/{fileName}` | Delete a scenario |
 | POST | `/api/tests/preview` | Run an unsaved test's steps up to one of them and return what that step received (body: `test`, `stepIndex`, optional `localSecrets`, `environment`) |
 | POST | `/api/run` | Run the collection (optional body: `localSecrets`, `environment`, `tests` to run only some); streams progress, see below |

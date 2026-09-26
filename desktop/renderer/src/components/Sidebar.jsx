@@ -40,6 +40,7 @@ export default function Sidebar({
   openCollectionSetup,
   closeCollection,
   openTest,
+  testMenu,
   newTest,
   goToCollection,
   goToRun,
@@ -163,6 +164,10 @@ export default function Sidebar({
                           activeFile === item.fileName && view === 'builder' ? 'active' : ''
                         }`}
                         onClick={() => openTest(item.fileName)}
+                        onContextMenu={(event) => {
+                          event.preventDefault();
+                          testMenu(item.fileName);
+                        }}
                       >
                         <span
                           className={`run-dot ${runStatus[item.fileName] || ''}`}

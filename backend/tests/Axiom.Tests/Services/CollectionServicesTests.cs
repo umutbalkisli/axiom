@@ -20,6 +20,92 @@ public class CollectionManagementServiceTests
     private static SaveSharedStepsRequest Shared(string name, string? fileName = null, params StepDocument[] steps) =>
         new() { Name = name, FileName = fileName, Steps = steps.Length > 0 ? steps.ToList() : [new StepDocument { Id = "s", Type = "request", Method = "GET", Url = "x" }] };
 
+    // ---- cloning ----
+
+    private const string Original = """
+        # Checks the happy path; keep in sync with the API docs.
+        name: Get user
+        description: reads one user
+        endpoint: /users/{id}
+        method: GET
+        steps:
+        - id: r
+          type: request
+          method: GET
+          url: '{{base_url}}/users/1'   # the seeded user
+          assert:
+          - { source: status, operator: '==', expected: 200 }
+
+        """;
+
+    [Fact]
+    public void Cloning_copies_the_file_as_it_is_and_changes_only_the_name()
+    {
+        using var folder = new TempFolder();
+        folder.Write("collection.yaml", "name: C\n");
+        folder.Write("tests/get-user.test.yaml", Original);
+
+        var (_, fileName) = Service.CloneTest(folder.Path, "get-user.test.yaml", "Get user (copy)");
+
+        Assert.Equal("get-user-copy.test.yaml", fileName);
+        Assert.Equal(Original.Replace("name: Get user\n", "name: Get user (copy)\n"), folder.Read("tests/get-user-copy.test.yaml"));
+        Assert.Equal(Original, folder.Read("tests/get-user.test.yaml"));                     // the original is untouched
+        Assert.Equal(["Get user", "Get user (copy)"], new YamlCollectionLoader().Load(folder.Path).TestCases.Select(t => t.Name).Order());
+    }
+
+    [Theory]
+    [InlineData("Status: 200 # ok")]
+    [InlineData("it's \"quoted\"")]
+    [InlineData("- starts like a list")]
+    [InlineData("Şifre değiştir (kopya)")]
+    public void A_cloned_name_that_needs_quoting_reads_back_exactly(string name)
+    {
+        using var folder = new TempFolder();
+        folder.Write("tests/a.test.yaml", "name: A\nsteps: []\n");
+
+        var (_, fileName) = Service.CloneTest(folder.Path, "a", name);
+
+        Assert.Equal(name, Service.GetTest(folder.Path, fileName)!.Name);
+    }
+
+    [Fact]
+    public void A_multi_line_name_is_replaced_whole_and_a_missing_name_is_added()
+    {
+        using var folder = new TempFolder();
+        folder.Write("tests/folded.test.yaml", "name: >\n  A long\n  name\nsteps: []\n");
+        folder.Write("tests/nameless.test.yaml", "steps: []\n");
+
+        var folded = Service.CloneTest(folder.Path, "folded", "Short");
+        var nameless = Service.CloneTest(folder.Path, "nameless", "Named");
+
+        Assert.Equal("name: Short\nsteps: []\n", folder.Read($"tests/{folded.FileName}"));
+        Assert.Equal("Named", Service.GetTest(folder.Path, nameless.FileName)!.Name);
+        Assert.Empty(Service.GetTest(folder.Path, nameless.FileName)!.Steps);
+    }
+
+    [Fact]
+    public void Clones_never_overwrite_an_existing_file()
+    {
+        using var folder = new TempFolder();
+        folder.Write("tests/a.test.yaml", "name: A\nsteps: []\n");
+
+        var first = Service.CloneTest(folder.Path, "a", "A");
+        var second = Service.CloneTest(folder.Path, "a", "A");
+
+        Assert.Equal(["a-2.test.yaml", "a-3.test.yaml"], new[] { first.FileName, second.FileName });
+    }
+
+    [Fact]
+    public void Cloning_a_missing_test_or_without_a_name_is_rejected()
+    {
+        using var folder = new TempFolder();
+        folder.Write("tests/a.test.yaml", "name: A\nsteps: []\n");
+
+        Assert.Throws<ArgumentException>(() => Service.CloneTest(folder.Path, "missing", "B"));
+        Assert.Throws<ArgumentException>(() => Service.CloneTest(folder.Path, "a", "  "));
+        Assert.Throws<ArgumentException>(() => Service.CloneTest(folder.Path, "../a", "B"));
+    }
+
     // ---- test files ----
 
     [Fact]

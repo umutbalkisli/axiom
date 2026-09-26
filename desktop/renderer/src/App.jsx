@@ -412,6 +412,44 @@ export default function App() {
     await refreshTests();
   };
 
+  // "Get user (copy)", or "(copy 2)", "(copy 3)"... when that name is taken.
+  const copyName = (name) => {
+    const taken = new Set(tests.map((item) => item.name));
+    let candidate = t.copyName.replace('{name}', name);
+    for (let n = 2; taken.has(candidate); n++) {
+      candidate = t.copyNameN.replace('{name}', name).replace('{n}', n);
+    }
+    return candidate;
+  };
+  // Copies a test as it is (only its name changes) and opens the copy, ready to become a variation.
+  const cloneTest = async (fileName) => {
+    const source = tests.find((item) => item.fileName === fileName);
+    try {
+      const result = await api.cloneTest({
+        folderPath: folder,
+        fileName,
+        name: copyName(source?.name || fileName),
+      });
+      await refreshTests();
+      notify(t.cloned);
+      await openTest(result.fileName);
+    } catch (error) {
+      window.alert(error.message);
+    }
+  };
+  // Right-click menu of a test in the sidebar or the collection's test list.
+  const testMenu = async (fileName) => {
+    const choice = await api.showContextMenu([
+      { id: 'open', label: t.openShort },
+      { id: 'run', label: t.runTest, enabled: !running },
+      { separator: true },
+      { id: 'clone', label: t.cloneTest },
+    ]);
+    if (choice === 'open') guarded(() => openTest(fileName))();
+    if (choice === 'run') run([fileName]);
+    if (choice === 'clone') guarded(() => cloneTest(fileName))();
+  };
+
   const environments = useMemo(() => environmentNames(collection.secrets), [collection.secrets]);
   const selectedEnvironment = environments.includes(environment) ? environment : '';
 
@@ -614,6 +652,7 @@ export default function App() {
         openCollectionSetup={guarded(() => openSetup('empty'))}
         closeCollection={guarded(closeCollection)}
         openTest={(fileName) => guarded(() => openTest(fileName))()}
+        testMenu={testMenu}
         newTest={guarded(newTest)}
         goToCollection={goToCollection}
         goToRun={guarded(() => setView('run'))}
@@ -697,6 +736,7 @@ export default function App() {
               runStatus={runStatus}
               openTest={openTest}
               runTest={(fileName) => run([fileName])}
+              testMenu={testMenu}
               running={running}
               newTest={newTest}
               shared={shared}
@@ -722,6 +762,9 @@ export default function App() {
               saveTest={saveTest}
               deleteTest={deleteTest}
               runTest={editKind === 'test' && activeFile ? () => run([activeFile]) : null}
+              cloneTest={
+                editKind === 'test' && activeFile ? guarded(() => cloneTest(activeFile)) : null
+              }
               running={running}
               previewStep={previewStep}
               back={backFromBuilder}

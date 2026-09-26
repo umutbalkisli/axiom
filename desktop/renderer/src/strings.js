@@ -266,6 +266,11 @@ export const strings = {
       'This body is not valid JSON ({error}), so it is sent as text/plain. In JSON, keys and text need double quotes: {"title": "foo"}.',
     bodyNotJsonDeclared:
       'This body is not valid JSON ({error}), but the Content-Type header says JSON, so the server will probably reject it. In JSON, keys and text need double quotes: {"title": "foo"}.',
+    cloneTest: 'Clone',
+    cloneTestHint: 'Make a copy of this test to use as a starting point for a variation',
+    cloned: 'Test cloned',
+    copyName: '{name} (copy)',
+    copyNameN: '{name} (copy {n})',
     sentRequest: 'Request sent',
     sentSql: 'SQL run',
     noRequestBody: 'No body was sent.',
@@ -533,6 +538,12 @@ export const strings = {
       'Bu gövde geçerli bir JSON değil ({error}); bu yüzden text/plain olarak gönderilir. JSON’da anahtarlar ve metinler çift tırnak içinde olmalıdır: {"title": "foo"}.',
     bodyNotJsonDeclared:
       'Bu gövde geçerli bir JSON değil ({error}), ancak Content-Type başlığı JSON diyor; sunucu büyük olasılıkla reddedecektir. JSON’da anahtarlar ve metinler çift tırnak içinde olmalıdır: {"title": "foo"}.',
+    cloneTest: 'Kopyala',
+    cloneTestHint:
+      'Bu testin bir kopyasını oluşturur; bir varyasyon için başlangıç noktası olarak kullanın',
+    cloned: 'Test kopyalandı',
+    copyName: '{name} (kopya)',
+    copyNameN: '{name} (kopya {n})',
     sentRequest: 'Gönderilen istek',
     sentSql: 'Çalıştırılan SQL',
     noRequestBody: 'Gövde gönderilmedi.',

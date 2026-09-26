@@ -20,6 +20,8 @@ contextBridge.exposeInMainWorld('axiomApi', {
   getTestCase: (payload) => ipcRenderer.invoke('get-test-case', payload),
   saveTestCase: (payload) => ipcRenderer.invoke('save-test-case', payload),
   deleteTestCase: (payload) => ipcRenderer.invoke('delete-test-case', payload),
+  cloneTest: (payload) => ipcRenderer.invoke('clone-test', payload),
+  showContextMenu: (items) => ipcRenderer.invoke('show-context-menu', items),
   checkFolder: (payload) => ipcRenderer.invoke('check-folder', payload),
   listShared: (payload) => ipcRenderer.invoke('list-shared', payload),
   getShared: (payload) => ipcRenderer.invoke('get-shared', payload),
