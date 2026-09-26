@@ -230,6 +230,7 @@ internal static class HostServerService
             {
                 exitCode = result.FailedCount == 0 ? 0 : 2,
                 report = ReportFormatterService.Format(result),
+                result,
             });
         }
         catch (Exception ex)

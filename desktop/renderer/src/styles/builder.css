@@ -1,0 +1,284 @@
+/* ---------- Test builder ---------- */
+
+.builder-bar {
+  position: sticky;
+  top: 0;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: -28px -32px 18px;
+  padding: 10px 32px;
+  background: color-mix(in srgb, var(--canvas-subtle) 88%, transparent);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--border-muted);
+}
+.builder-bar .back-link {
+  margin: 0;
+}
+
+.test-header {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 26px;
+}
+.title-input,
+.subtitle-input {
+  width: 100%;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--fg);
+  outline: none;
+  padding: 2px 8px;
+  margin-left: -8px;
+}
+.title-input {
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -0.025em;
+}
+.subtitle-input {
+  color: var(--fg-muted);
+  font-size: 14px;
+}
+.title-input:hover,
+.subtitle-input:hover {
+  background: var(--canvas-inset);
+}
+.title-input:focus,
+.subtitle-input:focus {
+  background: var(--canvas);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-subtle);
+}
+.title-input::placeholder,
+.subtitle-input::placeholder {
+  color: var(--fg-subtle);
+  font-weight: 500;
+}
+.endpoint-line,
+.request-line {
+  display: flex;
+  gap: 8px;
+}
+.endpoint-line {
+  margin-top: 8px;
+}
+.endpoint-line .form-control {
+  flex: 1;
+}
+.request-line {
+  margin-top: 14px;
+}
+.request-line .var-field {
+  flex: 1;
+}
+
+.steps-head {
+  margin-bottom: 12px;
+}
+.steps {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.step-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--canvas);
+  transition:
+    box-shadow 0.15s,
+    border-color 0.15s;
+}
+.step-card.open {
+  box-shadow: var(--shadow-sm);
+}
+.step-head {
+  display: flex;
+  align-items: center;
+}
+.step-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+  padding: 11px 6px 11px 14px;
+  border: none;
+  border-radius: var(--radius-lg);
+  background: transparent;
+  color: var(--fg);
+  text-align: left;
+  cursor: pointer;
+}
+.step-toggle:hover {
+  background: var(--canvas-subtle);
+}
+.step-number {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--canvas-inset);
+  color: var(--fg-muted);
+  font-size: 11.5px;
+  font-weight: 650;
+}
+.step-title {
+  font-weight: 600;
+  white-space: nowrap;
+}
+.step-summary {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg-subtle);
+}
+.step-chevron {
+  color: var(--fg-subtle);
+}
+.step-tools {
+  display: flex;
+  gap: 1px;
+  padding-right: 10px;
+}
+.step-body {
+  padding: 4px 16px 16px;
+  border-top: 1px solid var(--border-muted);
+  padding-top: 16px;
+}
+
+.step-body > .field,
+.step-body > .form-grid + .field {
+  margin-top: 14px;
+}
+.step-body > .field + .field {
+  margin-top: 14px;
+}
+
+.kv-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+}
+.kv-row {
+  display: grid;
+  grid-template-columns: minmax(0, 0.7fr) minmax(0, 1.3fr) 28px;
+  gap: 8px;
+  align-items: center;
+  width: 100%;
+}
+
+.assertions {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px dashed var(--border);
+}
+.assertion-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.assertion-head,
+.assertion-row {
+  display: grid;
+  grid-template-columns: minmax(0, 2.2fr) 112px 148px minmax(0, 1.3fr) 28px;
+  gap: 8px;
+  align-items: center;
+}
+.assertion-head {
+  color: var(--fg-subtle);
+  font-size: 11.5px;
+  font-weight: 650;
+}
+
+.add-step {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 4px;
+}
+.add-step-buttons {
+  display: flex;
+  gap: 10px;
+}
+.yaml-panel {
+  margin-top: 26px;
+}
+
+/* ---------- Variable-aware fields ({{xxx}} highlighting) ----------
+   The real <input>/<textarea> keeps its text transparent and only
+   shows the caret; a div behind it renders the same text with
+   {{tokens}} coloured. Both share one grid cell so they stay aligned. */
+
+.var-field {
+  position: relative;
+  display: grid;
+  min-width: 0;
+}
+.var-field > * {
+  grid-area: 1 / 1;
+  width: 100%;
+  box-sizing: border-box;
+  font-family: var(--font-mono) !important;
+  font-size: 12.5px !important;
+  line-height: 1.6 !important;
+  padding: 0 11px;
+  border-radius: var(--radius);
+}
+.var-field-highlight {
+  pointer-events: none;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow: hidden;
+  color: var(--fg);
+  border: 1px solid transparent;
+  margin: 0;
+  padding-top: 8px !important;
+  padding-bottom: 8px !important;
+}
+.var-field-highlight-single {
+  white-space: pre;
+  overflow-x: hidden;
+  padding-top: 6px !important;
+  padding-bottom: 6px !important;
+}
+.var-field-highlight .var-token {
+  color: var(--accent-emphasis);
+  background: var(--accent-subtle);
+  border-radius: 3px;
+  padding: 0 2px;
+  font-style: normal;
+}
+.var-field-input {
+  position: relative;
+  background: transparent !important;
+  color: transparent !important;
+  caret-color: var(--fg);
+}
+textarea.var-field-input {
+  padding: 8px 11px !important;
+}
+.var-field-input::selection {
+  background: var(--accent-border);
+}
+.var-field-input::placeholder {
+  color: var(--fg-subtle);
+  opacity: 1;
+}
+.var-field-input:focus {
+  color: transparent !important;
+}
+.var-field:has(.var-field-input:disabled) {
+  opacity: 0.55;
+}

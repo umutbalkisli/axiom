@@ -1,4 +1,6 @@
-export const translations = {
+import { strings } from './strings.js';
+
+const baseTranslations = {
   en: {
     overview: 'Overview',
     collection: 'Collection',
@@ -247,6 +249,11 @@ export const translations = {
   },
 };
 
+export const translations = {
+  en: { ...baseTranslations.en, ...strings.en },
+  tr: { ...baseTranslations.tr, ...strings.tr },
+};
+
 export function getLanguage() {
   return localStorage.getItem('axiom-language') || 'en';
 }
@@ -359,44 +366,54 @@ export function yamlPreview(test, t) {
     ]),
   ].join('\n');
 }
-export function parseReport(output, tests, t) {
-  const match = output.match(
-    /Total:\s*(\d+)\s*\|\s*Passed:\s*(\d+)\s*\|\s*Failed:\s*(\d+)\s*\|\s*Success:\s*([\d.,]+)%/i,
-  );
-  const cases = output.split('\n').flatMap((line) => {
-    const trimmed = line.trim();
-    let status = null;
-    if (trimmed.startsWith('[PASS]')) status = 'PASS';
-    if (trimmed.startsWith('[FAIL]')) status = 'FAIL';
-    if (!status) return [];
-    const open = trimmed.lastIndexOf('(');
-    const close = trimmed.lastIndexOf(')');
-    if (
-      open < 0 ||
-      close <= open ||
-      !trimmed
-        .slice(open + 1, close)
-        .trim()
-        .endsWith('ms')
-    )
-      return [];
-    return [
-      {
-        status,
-        name: trimmed.slice(6, open).trim(),
-        duration: Number.parseInt(trimmed.slice(open + 1, close), 10) || 0,
-      },
-    ];
+// Turns the host's structured run result into what the results screen renders.
+export function buildReport(result, tests) {
+  const byFile = new Map(tests.map((test) => [test.fileName, test]));
+  const cases = (result.testCases || []).map((testCase) => {
+    const fileName = String(testCase.sourceFile || '')
+      .split(/[\\/]/)
+      .pop();
+    const known = byFile.get(fileName) || {};
+    return {
+      name: testCase.name,
+      fileName,
+      method: known.method,
+      endpoint: known.endpoint,
+      passed: Boolean(testCase.passed),
+      durationMs: new Date(testCase.completedAt) - new Date(testCase.startedAt),
+      steps: (testCase.steps || []).map((step) => ({
+        name: step.name,
+        type: step.type,
+        passed: Boolean(step.passed),
+        error: step.error,
+        statusCode: step.statusCode,
+        rowCount: step.rowCount,
+        durationMs: step.durationMs,
+        assertions: (step.assertions || []).map((assertion) => ({
+          text: describeAssertion(assertion),
+          passed: Boolean(assertion.passed),
+          expected: assertion.expected,
+          actual: assertion.actual,
+          error: assertion.error,
+        })),
+      })),
+    };
   });
-  const groups = groupByEndpoint(
-    cases.map((item) => ({ ...item, ...tests.find((test) => test.name === item.name) })),
-    t,
-  );
+  const passed = cases.filter((item) => item.passed).length;
   return {
-    total: Number(match?.[1] || cases.length),
-    passed: Number(match?.[2] || cases.filter((item) => item.status === 'PASS').length),
-    failed: Number(match?.[3] || cases.filter((item) => item.status === 'FAIL').length),
-    rate: match?.[4] || '-',
-    groups,
+    total: cases.length,
+    passed,
+    failed: cases.length - passed,
+    rate: cases.length ? ((passed / cases.length) * 100).toFixed(0) : '0',
+    durationMs: new Date(result.completedAt) - new Date(result.startedAt),
+    completedAt: new Date(result.completedAt).toLocaleTimeString(),
+    tests: cases,
   };
+}
+
+function describeAssertion(assertion) {
+  const target = `${assertion.source}${assertion.path ? `.${assertion.path}` : ''}`;
+  const aggregate = assertion.aggregate ? `${assertion.aggregate}(${target})` : target;
+  const needsValue = !['exists', 'not_exists'].includes(assertion.operator);
+  return `${aggregate} ${assertion.operator}${needsValue ? ` ${String(assertion.expected ?? '')}` : ''}`;
 }

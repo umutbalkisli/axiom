@@ -96,6 +96,7 @@ ipcMain.handle('run-tests', async (_, payload) => {
     exitCode: data.exitCode,
     stdout: data.report || '',
     stderr: '',
+    result: data.result || null,
   };
 });
 
@@ -136,6 +137,11 @@ ipcMain.handle('save-collection-settings', async (_, payload) => {
     },
   );
 });
+
+ipcMain.handle('check-folder', async (_, payload) => ({
+  exists: fs.existsSync(payload.folderPath),
+  hasCollection: fs.existsSync(path.join(payload.folderPath, 'collection.yaml')),
+}));
 
 ipcMain.handle('get-aggregations', async () => {
   const data = await hostRequest('GET', '/api/assertions/aggregations');

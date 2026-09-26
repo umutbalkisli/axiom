@@ -1,19 +1,23 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Sidebar from './components/Sidebar.jsx';
-import Overview from './components/Overview.jsx';
+import Collection from './components/Collection.jsx';
 import Builder from './components/Builder.jsx';
 import RunReport from './components/RunReport.jsx';
 import CollectionSetup from './components/CollectionSetup.jsx';
+import Welcome from './components/Welcome.jsx';
+import Icon from './components/Icons.jsx';
 import {
+  buildReport,
   getLanguage,
   getTheme,
   normalizeSteps,
-  parseReport,
   toYamlSteps,
   translations,
 } from './i18n.js';
 
 const api = window.axiomApi;
+const RECENT_KEY = 'axiom-recent';
+
 const newStep = (type, index) => ({
   id: `${type}_${index}`,
   type,
@@ -29,26 +33,41 @@ const newStep = (type, index) => ({
   assertions: [
     {
       expression: type === 'request' ? 'status' : 'row_count',
+      aggregate: '',
       operator: type === 'request' ? '==' : '>',
       expected: type === 'request' ? '200' : '0',
     },
   ],
 });
-const emptyTest = () => ({ name: '', description: '', method: 'GET', endpoint: '', steps: [] });
-const titleFor = (folder, hasCollection, t) => {
-  const name = folder.split(/[\\/]/).pop();
-  const suffix = hasCollection ? t.collectionSuffix : `(${t.emptyFolder})`;
-  return `${name} ${suffix}`;
-};
+const emptyTest = () => ({
+  name: '',
+  description: '',
+  method: 'GET',
+  endpoint: '',
+  variables: {},
+  steps: [],
+});
+
+function readRecent() {
+  try {
+    return JSON.parse(localStorage.getItem(RECENT_KEY)) || [];
+  } catch {
+    return [];
+  }
+}
 
 export default function App() {
   const [language, setLanguage] = useState(getLanguage());
   const t = translations[language];
   const [theme, setTheme] = useState(getTheme());
-  const [view, setView] = useState('overview');
+  const [view, setView] = useState('collection');
+  const [collectionTab, setCollectionTab] = useState('tests');
+  const [setupMode, setSetupMode] = useState('empty');
   const [folder, setFolder] = useState(null);
   const [hasCollection, setHasCollection] = useState(false);
   const [collection, setCollection] = useState(toCollectionState(null));
+  const [savedCollection, setSavedCollection] = useState(JSON.stringify(toCollectionState(null)));
+  const [collectionName, setCollectionName] = useState('');
   const [environment, setEnvironment] = useState(
     () => localStorage.getItem('axiom-environment') || '',
   );
@@ -58,10 +77,29 @@ export default function App() {
   const [tests, setTests] = useState([]);
   const [activeFile, setActiveFile] = useState(null);
   const [test, setTest] = useState(emptyTest);
+  const [savedTest, setSavedTest] = useState(JSON.stringify(emptyTest()));
   const [report, setReport] = useState(null);
   const [rawOutput, setRawOutput] = useState('');
-  const [rawOpen, setRawOpen] = useState(false);
-  const [message, setMessage] = useState('');
+  const [running, setRunning] = useState(false);
+  const [toast, setToast] = useState(null);
+  const [recent, setRecent] = useState(readRecent);
+  const toastTimer = useRef(null);
+
+  const notify = useCallback((text, tone = 'success') => {
+    clearTimeout(toastTimer.current);
+    setToast({ text, tone });
+    toastTimer.current = setTimeout(() => setToast(null), 3200);
+  }, []);
+
+  const collectionDirty = hasCollection && JSON.stringify(collection) !== savedCollection;
+  const testDirty = view === 'builder' && JSON.stringify(test) !== savedTest;
+  const dirty = (view === 'collection' && collectionDirty) || testDirty;
+  // Runs `action` unless the user declines to discard unsaved edits.
+  const guarded = (action) => () => {
+    if (dirty && !window.confirm(t.discardConfirm)) return;
+    action();
+  };
+
   useEffect(() => {
     localStorage.setItem('axiom-language', language);
     document.documentElement.lang = language;
@@ -89,53 +127,97 @@ export default function App() {
       .then((names) => setAggregations(names || []))
       .catch(() => {});
   }, []);
-  useEffect(() => {
-    if (!folder || !hasCollection) return;
-    Promise.all([
-      api.getCollection({ folderPath: folder }),
-      api.listTests({ folderPath: folder }),
-      api.listLocalSecrets({ folderPath: folder }),
+
+  const loadCollection = useCallback(async (folderPath) => {
+    const [data, list, localNames, providers] = await Promise.all([
+      api.getCollection({ folderPath }),
+      api.listTests({ folderPath }),
+      api.listLocalSecrets({ folderPath }),
       api.getSecretProviders(),
-    ]).then(([data, list, localNames, providers]) => {
-      setCollection(toCollectionState(data));
-      setTests(list.tests || []);
-      setLocalSecretNames(localNames || []);
-      setSecretProviders(providers || []);
+    ]);
+    const state = toCollectionState(data);
+    setCollection(state);
+    setSavedCollection(JSON.stringify(state));
+    setCollectionName(data?.name || '');
+    setTests(list.tests || []);
+    setLocalSecretNames(localNames || []);
+    setSecretProviders(providers || []);
+  }, []);
+
+  const remember = (folderPath) => {
+    const next = [folderPath, ...readRecent().filter((item) => item !== folderPath)].slice(0, 6);
+    localStorage.setItem(RECENT_KEY, JSON.stringify(next));
+    setRecent(next);
+  };
+
+  const showFolder = useCallback(
+    async (folderPath, withCollection) => {
+      setFolder(folderPath);
+      setHasCollection(withCollection);
+      setActiveFile(null);
+      setReport(null);
+      setCollectionTab('tests');
+      setView('collection');
+      if (withCollection) {
+        try {
+          await loadCollection(folderPath);
+          remember(folderPath);
+        } catch (error) {
+          notify(error.message, 'danger');
+        }
+      }
+    },
+    [loadCollection, notify],
+  );
+
+  // Reopen the last collection on launch.
+  useEffect(() => {
+    const [last] = readRecent();
+    if (!last) return;
+    api.checkFolder({ folderPath: last }).then((state) => {
+      if (state.exists && state.hasCollection) showFolder(last, true);
     });
-  }, [folder, hasCollection]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const openFolder = async () => {
     const result = await api.chooseFolder();
     if (!result) return;
-    setFolder(result.folderPath);
-    setHasCollection(result.hasCollection);
-    setView('overview');
-    setMessage(
-      result.hasCollection
-        ? `${t.collectionLoaded}: ${result.folderPath}`
-        : `${t.folderSelected}: ${result.folderPath}. ${t.createToContinue}`,
-    );
+    await showFolder(result.folderPath, result.hasCollection);
+    if (result.hasCollection) notify(`${t.collectionLoaded}`);
   };
+  const openRecent = async (path) => {
+    const state = await api.checkFolder({ folderPath: path });
+    if (!state.exists || !state.hasCollection) {
+      const next = readRecent().filter((item) => item !== path);
+      localStorage.setItem(RECENT_KEY, JSON.stringify(next));
+      setRecent(next);
+      notify(t.folderMissing, 'danger');
+      return;
+    }
+    await showFolder(path, true);
+  };
+  const openSetup = (mode) => {
+    setSetupMode(mode);
+    setView('setup');
+  };
+
+  const chooseDestination = async () =>
+    folder && !hasCollection ? { folderPath: folder } : api.chooseFolder();
+
   const createCollection = async (name) => {
-    if (!name) return;
-    const destination = await api.chooseFolder();
+    const destination = await chooseDestination();
     if (!destination) return;
     try {
-      await api.initCollection({
-        folderPath: destination.folderPath,
-        collectionName: name,
-      });
-      setFolder(destination.folderPath);
-      setHasCollection(true);
-      setMessage(`${t.collectionCreated}: ${destination.folderPath}`);
-      setView('overview');
+      await api.initCollection({ folderPath: destination.folderPath, collectionName: name });
+      await showFolder(destination.folderPath, true);
+      notify(t.collectionCreated);
     } catch (error) {
       window.alert(error.message || t.failedCreate);
     }
   };
   const importOpenApi = async (name, specificationUrl) => {
-    if (!name) return;
-    if (!specificationUrl) return;
-    const destination = await api.chooseFolder();
+    const destination = await chooseDestination();
     if (!destination) return;
     try {
       const result = await api.importOpenApi({
@@ -143,34 +225,43 @@ export default function App() {
         collectionName: name,
         specificationUrl,
       });
-      setFolder(destination.folderPath);
-      setHasCollection(true);
-      setMessage(`${t.imported}: ${result.imported}`);
-      const list = await api.listTests({ folderPath: destination.folderPath });
-      setTests(list.tests || []);
-      const data = await api.getCollection({ folderPath: destination.folderPath });
-      setCollection(toCollectionState(data));
-      setView('overview');
+      await showFolder(destination.folderPath, true);
+      notify(`${t.imported}: ${result.imported}`);
     } catch (error) {
       window.alert(error.message || t.importFailed);
     }
   };
+
+  const refreshTests = async () => {
+    const list = await api.listTests({ folderPath: folder });
+    setTests(list.tests || []);
+  };
+
   const openTest = async (fileName) => {
     const data = await api.getTestCase({ folderPath: folder, fileName });
     if (!data) return;
-    setActiveFile(fileName);
-    setTest({
+    const loaded = {
       name: data.name || '',
       description: data.description || '',
       method: data.method || 'GET',
       endpoint: data.endpoint || '',
+      variables: data.variables || {},
       steps: normalizeSteps(data.steps || []),
-    });
+    };
+    setActiveFile(fileName);
+    setTest(loaded);
+    setSavedTest(JSON.stringify(loaded));
+    setView('builder');
+  };
+  const newTest = () => {
+    const fresh = emptyTest();
+    setActiveFile(null);
+    setTest(fresh);
+    setSavedTest(JSON.stringify(fresh));
     setView('builder');
   };
   const saveTest = async () => {
-    if (!test.name.trim()) return window.alert(t.nameRequired);
-    if (!test.endpoint.trim()) return window.alert(t.endpointRequired);
+    if (!test.name.trim() || !test.endpoint.trim()) return;
     try {
       const result = await api.saveTestCase({
         folderPath: folder,
@@ -179,13 +270,13 @@ export default function App() {
         description: test.description,
         method: test.method,
         endpoint: test.endpoint,
-        variables: {},
+        variables: test.variables || {},
         steps: toYamlSteps(test.steps),
       });
       setActiveFile(result.fileName);
-      setMessage(`${t.saved}: ${result.fileName}`);
-      const list = await api.listTests({ folderPath: folder });
-      setTests(list.tests || []);
+      setSavedTest(JSON.stringify(test));
+      notify(t.saved);
+      await refreshTests();
     } catch (error) {
       window.alert(error.message || t.failedSave);
     }
@@ -195,22 +286,44 @@ export default function App() {
     await api.deleteTestCase({ folderPath: folder, fileName: activeFile });
     setActiveFile(null);
     setTest(emptyTest());
-    setView('overview');
-    setMessage(t.deleted);
-    const list = await api.listTests({ folderPath: folder });
-    setTests(list.tests || []);
+    setSavedTest(JSON.stringify(emptyTest()));
+    setView('collection');
+    notify(t.deleted);
+    await refreshTests();
   };
+
+  const environments = useMemo(() => environmentNames(collection.secrets), [collection.secrets]);
+  const selectedEnvironment = environments.includes(environment) ? environment : '';
+
   const run = async () => {
+    if (dirty && !window.confirm(t.discardConfirm)) return;
     setView('run');
-    setRawOutput(t.running);
-    const result = await api.runTests({
-      folderPath: folder,
-      environment: environments.includes(environment) ? environment : null,
-    });
-    const output = [result.stdout, result.stderr].filter(Boolean).join('\n').trim();
-    setRawOutput(output || t.noOutput);
-    setReport(parseReport(output, tests, t));
+    setRunning(true);
+    try {
+      const result = await api.runTests({
+        folderPath: folder,
+        environment: selectedEnvironment || null,
+      });
+      setRawOutput([result.stdout, result.stderr].filter(Boolean).join('\n').trim());
+      setReport(
+        result.result
+          ? { ...buildReport(result.result, tests), stamp: Date.now() }
+          : { error: t.noOutput },
+      );
+    } catch (error) {
+      setReport({ error: error.message, stamp: Date.now() });
+    } finally {
+      setRunning(false);
+    }
   };
+  const runStatus = useMemo(() => {
+    const map = {};
+    (report?.tests || []).forEach((item) => {
+      map[item.fileName] = item.passed ? 'pass' : 'fail';
+    });
+    return map;
+  }, [report]);
+
   const saveSettings = async () => {
     try {
       await api.saveCollectionSettings({
@@ -224,15 +337,18 @@ export default function App() {
           ]),
         ),
       });
-      setMessage(t.saved);
+      setSavedCollection(JSON.stringify(collection));
+      notify(t.saved);
     } catch (error) {
       window.alert(error.message);
     }
   };
+  const discardSettings = () => setCollection(JSON.parse(savedCollection));
   const saveLocalSecret = async (name, value) => {
     try {
       await api.setLocalSecret({ folderPath: folder, name, value });
       setLocalSecretNames((names) => [...new Set([...names, name])]);
+      notify(t.secretStored);
     } catch (error) {
       window.alert(error.message);
     }
@@ -241,7 +357,7 @@ export default function App() {
     await api.deleteLocalSecret({ folderPath: folder, name });
     setLocalSecretNames((names) => names.filter((n) => n !== name));
   };
-  const environments = environmentNames(collection.secrets);
+
   const updateStep = (index, patch) =>
     setTest((current) => ({
       ...current,
@@ -254,6 +370,14 @@ export default function App() {
     }));
   const removeStep = (index) =>
     setTest((current) => ({ ...current, steps: current.steps.filter((_, i) => i !== index) }));
+  const moveStep = (index, direction) =>
+    setTest((current) => {
+      const target = index + direction;
+      if (target < 0 || target >= current.steps.length) return current;
+      const steps = [...current.steps];
+      [steps[index], steps[target]] = [steps[target], steps[index]];
+      return { ...current, steps };
+    });
   const addAssertion = (index) =>
     updateStep(index, {
       assertions: [
@@ -271,6 +395,11 @@ export default function App() {
     updateStep(stepIndex, {
       assertions: test.steps[stepIndex].assertions.filter((_, i) => i !== assertionIndex),
     });
+
+  const failedCount = report?.failed || 0;
+  const goToCollection = guarded(() => setView('collection'));
+  const showWelcome = view !== 'setup' && !hasCollection;
+
   return (
     <div className="app-shell">
       <Sidebar
@@ -280,98 +409,148 @@ export default function App() {
         theme={theme}
         setTheme={setTheme}
         folder={folder}
+        collectionName={collectionName}
         hasCollection={hasCollection}
         tests={tests}
+        runStatus={runStatus}
+        failedCount={failedCount}
         activeFile={activeFile}
         view={view}
-        openFolder={openFolder}
-        openCollectionSetup={() => setView('setup')}
-        openTest={openTest}
-        goToOverview={() => setView('overview')}
+        openFolder={guarded(openFolder)}
+        openCollectionSetup={guarded(() => openSetup('empty'))}
+        openTest={(fileName) => guarded(() => openTest(fileName))()}
+        newTest={guarded(newTest)}
+        goToCollection={goToCollection}
+        goToRun={guarded(() => setView('run'))}
       />
-      <div className="axiom-main-col">
-        <header className="axiom-topbar">
-          <div>
-            <h1 className="axiom-page-title">
-              {folder ? titleFor(folder, hasCollection, t) : t.noCollection}
-            </h1>
-            <p className="axiom-status">{message || (folder ? t.chooseHint : t.chooseFolder)}</p>
+      <div className="main-col">
+        <header className="topbar">
+          <div className="topbar-title">
+            <h1>{hasCollection ? collectionName || folder.split(/[\\/]/).pop() : 'Axiom'}</h1>
+            <p className={hasCollection ? '' : 'hint-line'} title={folder || ''}>
+              {hasCollection ? folder : t.chooseFolder}
+            </p>
           </div>
-          <div className="d-flex align-items-center gap-2">
-            {environments.length > 0 && (
-              <select
-                className="form-select"
-                title={t.environment}
-                aria-label={t.environment}
-                value={environments.includes(environment) ? environment : ''}
-                onChange={(event) => setEnvironment(event.target.value)}
+          {hasCollection && (
+            <div className="topbar-actions">
+              {environments.length > 0 && (
+                <label className="env-select" title={t.environment}>
+                  <Icon name="layers" size={14} />
+                  <select
+                    aria-label={t.environment}
+                    value={selectedEnvironment}
+                    onChange={(event) => setEnvironment(event.target.value)}
+                  >
+                    <option value="">{t.environmentDefault}</option>
+                    {environments.map((name) => (
+                      <option key={name} value={name}>
+                        {name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              <button
+                type="button"
+                className="btn btn-primary run-btn"
+                disabled={running}
+                onClick={run}
               >
-                <option value="">
-                  {t.environment}: {t.environmentDefault}
-                </option>
-                {environments.map((name) => (
-                  <option key={name} value={name}>
-                    {t.environment}: {name}
-                  </option>
-                ))}
-              </select>
-            )}
-            <button className="btn btn-primary" disabled={!hasCollection} onClick={run}>
-              {t.run}
-            </button>
-          </div>
-        </header>
-        <main className="axiom-main">
-          {view === 'setup' && (
-            <CollectionSetup t={t} createNew={createCollection} importOpenApi={importOpenApi} />
+                <Icon
+                  name={running ? 'spinner' : 'play'}
+                  size={14}
+                  className={running ? 'spin' : ''}
+                />
+                {t.run}
+              </button>
+            </div>
           )}
-          {view === 'overview' && (
-            <Overview
+        </header>
+        <main className="content">
+          {view === 'setup' && (
+            <CollectionSetup
+              key={setupMode}
+              t={t}
+              mode={setupMode}
+              createNew={createCollection}
+              importOpenApi={importOpenApi}
+              cancel={() => setView('collection')}
+            />
+          )}
+          {showWelcome && (
+            <Welcome
+              t={t}
+              folder={folder}
+              recent={recent}
+              openFolder={openFolder}
+              openRecent={openRecent}
+              openCollectionSetup={() => openSetup('empty')}
+              openImport={() => openSetup('import')}
+            />
+          )}
+          {view === 'collection' && hasCollection && (
+            <Collection
               t={t}
               collection={collection}
               setCollection={setCollection}
-              hasCollection={hasCollection}
-              saveSettings={saveSettings}
+              tab={collectionTab}
+              setTab={setCollectionTab}
+              dirty={collectionDirty}
+              save={saveSettings}
+              discard={discardSettings}
+              tests={tests}
+              runStatus={runStatus}
+              openTest={openTest}
+              newTest={newTest}
+              openImport={() => openSetup('import')}
               secretProviders={secretProviders}
               localSecretNames={localSecretNames}
               saveLocalSecret={saveLocalSecret}
               deleteLocalSecret={deleteLocalSecret}
-              tests={tests}
-              openTest={openTest}
-              newTest={() => {
-                setActiveFile(null);
-                setTest(emptyTest());
-                setView('builder');
-              }}
+              notify={notify}
             />
           )}
           {view === 'builder' && (
             <Builder
+              key={activeFile || 'new'}
               t={t}
               test={test}
               setTest={setTest}
+              dirty={testDirty}
+              isNew={!activeFile}
               saveTest={saveTest}
               deleteTest={deleteTest}
+              back={goToCollection}
               addStep={addStep}
               removeStep={removeStep}
+              moveStep={moveStep}
               updateStep={updateStep}
               addAssertion={addAssertion}
               updateAssertion={updateAssertion}
               removeAssertion={removeAssertion}
               aggregations={aggregations}
+              connectionNames={Object.keys(collection.connections || {})}
             />
           )}
           {view === 'run' && (
             <RunReport
+              key={report?.stamp || 'none'}
               t={t}
               report={report}
+              running={running}
               rawOutput={rawOutput}
-              rawOpen={rawOpen}
-              setRawOpen={setRawOpen}
+              run={run}
+              environment={selectedEnvironment}
             />
           )}
         </main>
       </div>
+      {toast && (
+        <div className={`toast ${toast.tone}`} role="status">
+          <Icon name={toast.tone === 'danger' ? 'xCircle' : 'checkCircle'} size={16} />
+          {toast.text}
+        </div>
+      )}
     </div>
   );
 }

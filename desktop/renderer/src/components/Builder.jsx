@@ -1,284 +1,389 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { methodSupportsBody, toVariableName, yamlPreview } from '../i18n.js';
 import { MethodBadge } from './Badge.jsx';
+import Icon from './Icons.jsx';
 import { VariableInput, VariableTextarea } from './VariableField.jsx';
 
-function Field({ label, className = '', children }) {
+const METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'];
+const OPERATORS = [
+  ['==', '=='],
+  ['!=', '!='],
+  ['>', '>'],
+  ['>=', '>='],
+  ['<', '<'],
+  ['<=', '<='],
+  ['contains', 'contains'],
+  ['not_contains', 'not_contains'],
+  ['exists', 'exists'],
+  ['not_exists', 'not_exists'],
+];
+const NO_EXPECTED = new Set(['exists', 'not_exists']);
+
+function Field({ label, hint, className = '', children }) {
   return (
-    <label className={`${className} d-block`}>
-      <span className="form-label mb-1">{label}</span>
+    <label className={`field ${className}`}>
+      <span className="field-label">{label}</span>
       {children}
+      {hint && <span className="field-hint">{hint}</span>}
     </label>
   );
 }
 
-function KeyValueEditor({ t, label, rows, onChange, keyPlaceholder, valuePlaceholder }) {
-  const updateRow = (index, field, value) => {
+function KeyValueEditor({ t, rows, onChange, keyPlaceholder, valuePlaceholder, addLabel }) {
+  const updateRow = (index, field, value) =>
     onChange(rows.map((row, rowIndex) => (rowIndex === index ? { ...row, [field]: value } : row)));
-  };
-
-  const addRow = () => onChange([...rows, { key: '', value: '' }]);
-  const removeRow = (index) => onChange(rows.filter((_, rowIndex) => rowIndex !== index));
-
   return (
-    <div className="mb-3">
-      <div className="d-flex justify-content-between align-items-center mb-2">
-        <span className="form-label mb-0">{label}</span>
-        <button type="button" className="btn btn-sm btn-outline-secondary" onClick={addRow}>
-          {t.addQueryParameter}
-        </button>
-      </div>
+    <div className="kv-editor">
       {rows.map((row, index) => (
-        <div className="d-flex gap-2 mb-2" key={`${label}-${index}`}>
+        <div className="kv-row" key={index}>
           <input
             className="form-control font-monospace"
-            style={{ flex: '0 1 38%' }}
             value={row.key}
             placeholder={keyPlaceholder}
+            aria-label={keyPlaceholder}
             onChange={(event) => updateRow(index, 'key', event.target.value)}
           />
           <VariableInput
-            className="flex-grow-1"
             value={row.value}
             placeholder={valuePlaceholder}
             onChange={(event) => updateRow(index, 'value', event.target.value)}
           />
           <button
             type="button"
-            className="btn btn-outline-danger px-2"
+            className="btn-icon danger"
             aria-label={t.remove}
             title={t.remove}
-            onClick={() => removeRow(index)}
+            onClick={() => onChange(rows.filter((_, rowIndex) => rowIndex !== index))}
           >
-            &times;
+            <Icon name="x" size={14} />
           </button>
         </div>
       ))}
+      <button
+        type="button"
+        className="btn btn-link"
+        onClick={() => onChange([...rows, { key: '', value: '' }])}
+      >
+        <Icon name="plus" size={13} /> {addLabel}
+      </button>
     </div>
   );
 }
-function StepCard({
+
+function AssertionsEditor({
   t,
   step,
   index,
-  updateStep,
-  removeStep,
+  aggregations,
+  savedNames,
   addAssertion,
   updateAssertion,
   removeAssertion,
-  aggregations,
-  savedNames,
 }) {
-  const patch = (key, value) => updateStep(index, { [key]: value });
-  const listId = `assertion-${index}`;
   const sources = [
     ...(step.type === 'request'
       ? ['status', 'duration_ms', 'body']
       : ['row_count', 'duration_ms', 'rows']),
     ...savedNames,
   ];
+  const listId = `assertion-${index}-sources`;
   return (
-    <article className="card mb-3">
-      <div className="card-header d-flex align-items-center justify-content-between">
-        <span className="d-flex align-items-center gap-2">
-          <span className="axiom-mono" style={{ color: 'var(--fg-subtle)' }}>
-            {t.step} {index + 1}
-          </span>
-          {step.type === 'request' ? (
-            <MethodBadge method={step.method} />
-          ) : (
-            <span
-              className="method-badge"
-              style={{ color: 'var(--fg-muted)', background: 'var(--canvas-inset)' }}
-            >
-              SQL
-            </span>
-          )}
-          <span>{step.name}</span>
-        </span>
-        <button className="btn btn-sm btn-outline-danger" onClick={() => removeStep(index)}>
-          {t.remove}
-        </button>
+    <section className="assertions">
+      <div className="section-head">
+        <h4>
+          {t.assertions} <span className="count-pill">{step.assertions.length}</span>
+        </h4>
       </div>
-      <div className="card-body">
-        <div className="row g-2">
-          <Field label={t.saveAs} className="col-md-4">
-            <input
-              className="form-control font-monospace"
-              value={step.save_as}
-              placeholder={t.resultName}
-              onChange={(e) => patch('save_as', toVariableName(e.target.value))}
-            />
-          </Field>
-          <Field label={t.name} className="col-md-3">
-            <input
-              className="form-control"
-              value={step.name}
-              onChange={(e) => patch('name', e.target.value)}
-            />
-          </Field>
-          {step.type === 'request' ? (
-            <Field label={t.method} className="col-md-3">
-              <select
-                className="form-select"
-                value={step.method}
-                onChange={(e) => patch('method', e.target.value)}
-              >
-                <option>GET</option>
-                <option>POST</option>
-                <option>PUT</option>
-                <option>PATCH</option>
-                <option>DELETE</option>
-              </select>
-            </Field>
-          ) : (
-            <Field label={t.connection} className="col-md-3">
+      <datalist id={listId}>
+        {sources.map((name) => (
+          <option key={name} value={name} />
+        ))}
+      </datalist>
+      {step.assertions.length === 0 ? (
+        <p className="muted small">{t.noAssertions}</p>
+      ) : (
+        <div className="assertion-grid">
+          <div className="assertion-head">
+            <span>{t.assertionCheck}</span>
+            <span>{t.aggregation}</span>
+            <span>{t.operator}</span>
+            <span>{t.expected}</span>
+            <span />
+          </div>
+          {step.assertions.map((assertion, assertionIndex) => (
+            <div className="assertion-row" key={assertionIndex}>
               <input
                 className="form-control font-monospace"
-                value={step.connection}
-                onChange={(e) => patch('connection', e.target.value)}
+                list={listId}
+                value={assertion.expression}
+                placeholder={t.assertionValue}
+                aria-label={t.assertionCheck}
+                spellCheck={false}
+                onChange={(event) =>
+                  updateAssertion(index, assertionIndex, { expression: event.target.value })
+                }
+              />
+              <select
+                className="form-select"
+                aria-label={t.aggregation}
+                title={t.aggregationHint}
+                value={assertion.aggregate || ''}
+                onChange={(event) =>
+                  updateAssertion(index, assertionIndex, { aggregate: event.target.value })
+                }
+              >
+                <option value="">{t.aggregationNone}</option>
+                {aggregations.map((name) => (
+                  <option key={name} value={name}>
+                    {name}
+                  </option>
+                ))}
+              </select>
+              <select
+                className="form-select"
+                aria-label={t.operator}
+                value={assertion.operator}
+                onChange={(event) =>
+                  updateAssertion(index, assertionIndex, { operator: event.target.value })
+                }
+              >
+                {OPERATORS.map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {t.operatorLabels?.[value] || label}
+                  </option>
+                ))}
+              </select>
+              <VariableInput
+                value={NO_EXPECTED.has(assertion.operator) ? '' : assertion.expected}
+                disabled={NO_EXPECTED.has(assertion.operator)}
+                placeholder={NO_EXPECTED.has(assertion.operator) ? '—' : t.expected}
+                onChange={(event) =>
+                  updateAssertion(index, assertionIndex, { expected: event.target.value })
+                }
+              />
+              <button
+                type="button"
+                className="btn-icon danger"
+                aria-label={t.remove}
+                title={t.remove}
+                onClick={() => removeAssertion(index, assertionIndex)}
+              >
+                <Icon name="x" size={14} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      <button type="button" className="btn btn-link" onClick={() => addAssertion(index)}>
+        <Icon name="plus" size={13} /> {t.addAssertion}
+      </button>
+    </section>
+  );
+}
+
+function StepCard({
+  t,
+  step,
+  index,
+  total,
+  open,
+  toggle,
+  updateStep,
+  removeStep,
+  moveStep,
+  connectionNames,
+  ...assertionProps
+}) {
+  const [panel, setPanel] = useState('params');
+  const patch = (key, value) => updateStep(index, { [key]: value });
+  const isRequest = step.type === 'request';
+  const supportsBody = isRequest && methodSupportsBody(step.method);
+  const activePanel = panel === 'body' && !supportsBody ? 'params' : panel;
+  const summary = isRequest ? step.url : (step.sql || '').split('\n')[0];
+
+  return (
+    <article className={`step-card ${open ? 'open' : ''}`}>
+      <header className="step-head">
+        <button type="button" className="step-toggle" aria-expanded={open} onClick={toggle}>
+          <span className="step-number">{index + 1}</span>
+          {isRequest ? (
+            <MethodBadge method={step.method} />
+          ) : (
+            <span className="method-badge method-sql">SQL</span>
+          )}
+          <span className="step-title">{step.name || t.untitledStep}</span>
+          <span className="step-summary mono" title={summary}>
+            {summary}
+          </span>
+          {step.assertions.length > 0 && (
+            <span className="chip" title={t.assertions}>
+              <Icon name="checkCircle" size={13} /> {step.assertions.length}
+            </span>
+          )}
+          <Icon name={open ? 'chevronDown' : 'chevronRight'} size={15} className="step-chevron" />
+        </button>
+        <div className="step-tools">
+          <button
+            type="button"
+            className="btn-icon"
+            title={t.moveUp}
+            aria-label={t.moveUp}
+            disabled={index === 0}
+            onClick={() => moveStep(index, -1)}
+          >
+            <Icon name="arrowUp" size={14} />
+          </button>
+          <button
+            type="button"
+            className="btn-icon"
+            title={t.moveDown}
+            aria-label={t.moveDown}
+            disabled={index === total - 1}
+            onClick={() => moveStep(index, 1)}
+          >
+            <Icon name="arrowDown" size={14} />
+          </button>
+          <button
+            type="button"
+            className="btn-icon danger"
+            title={t.remove}
+            aria-label={t.remove}
+            onClick={() => removeStep(index)}
+          >
+            <Icon name="trash" size={14} />
+          </button>
+        </div>
+      </header>
+
+      {open && (
+        <div className="step-body">
+          <div className="form-grid two">
+            <Field label={t.name}>
+              <input
+                className="form-control"
+                value={step.name}
+                onChange={(event) => patch('name', event.target.value)}
               />
             </Field>
-          )}
-        </div>
-        <Field label={step.type === 'request' ? t.url : t.sql} className="mt-3">
-          {step.type === 'request' ? (
-            <VariableInput value={step.url} onChange={(e) => patch('url', e.target.value)} />
-          ) : (
-            <VariableTextarea
-              rows={3}
-              value={step.sql}
-              onChange={(e) => patch('sql', e.target.value)}
-            />
-          )}
-        </Field>
-        {step.type === 'request' && (
-          <>
-            <div className="row g-3 mt-1">
-              <div className="col-md-6">
+            <Field label={t.saveAs} hint={step.save_as ? `{{${step.save_as}}}` : t.saveAsHint}>
+              <input
+                className="form-control font-monospace"
+                value={step.save_as}
+                placeholder={t.resultName}
+                onChange={(event) => patch('save_as', toVariableName(event.target.value))}
+              />
+            </Field>
+          </div>
+
+          {isRequest ? (
+            <>
+              <div className="request-line">
+                <select
+                  className="form-select method-select"
+                  aria-label={t.method}
+                  value={step.method}
+                  onChange={(event) => patch('method', event.target.value)}
+                >
+                  {METHODS.map((method) => (
+                    <option key={method}>{method}</option>
+                  ))}
+                </select>
+                <VariableInput
+                  value={step.url}
+                  placeholder="{{base_url}}/todos"
+                  aria-label={t.url}
+                  onChange={(event) => patch('url', event.target.value)}
+                />
+              </div>
+              <div className="tabs compact" role="tablist">
+                {[
+                  ['params', t.queryParamsShort, step.queryParams.length],
+                  ['headers', t.headersShort, step.headers.length],
+                  ...(supportsBody ? [['body', t.bodyShort, step.body ? '•' : 0]] : []),
+                ].map(([id, label, count]) => (
+                  <button
+                    type="button"
+                    role="tab"
+                    key={id}
+                    aria-selected={activePanel === id}
+                    className={`tab ${activePanel === id ? 'active' : ''}`}
+                    onClick={() => setPanel(id)}
+                  >
+                    {label}
+                    {count ? <span className="count-pill">{count}</span> : null}
+                  </button>
+                ))}
+              </div>
+              {activePanel === 'params' && (
                 <KeyValueEditor
                   t={t}
-                  label={t.queryParams}
                   rows={step.queryParams}
                   onChange={(rows) => patch('queryParams', rows)}
                   keyPlaceholder="page"
                   valuePlaceholder="1"
+                  addLabel={t.addQueryParameter}
                 />
-              </div>
-              <div className="col-md-6">
+              )}
+              {activePanel === 'headers' && (
                 <KeyValueEditor
                   t={t}
-                  label={t.headers}
                   rows={step.headers}
                   onChange={(rows) => patch('headers', rows)}
                   keyPlaceholder="Authorization"
-                  valuePlaceholder="Bearer {{token}}"
+                  valuePlaceholder="Bearer {{secret.api_token}}"
+                  addLabel={t.addHeader}
                 />
-              </div>
-            </div>
-            {methodSupportsBody(step.method) && (
-              <Field label={t.body} className="mt-1">
+              )}
+              {activePanel === 'body' && (
                 <VariableTextarea
-                  rows={6}
+                  rows={7}
                   value={step.body}
                   placeholder={'{\n  "title": "New todo"\n}'}
-                  onChange={(e) => patch('body', e.target.value)}
+                  onChange={(event) => patch('body', event.target.value)}
+                />
+              )}
+            </>
+          ) : (
+            <>
+              <Field label={t.connection}>
+                {connectionNames.length ? (
+                  <select
+                    className="form-select"
+                    value={step.connection}
+                    onChange={(event) => patch('connection', event.target.value)}
+                  >
+                    <option value="">{t.chooseConnection}</option>
+                    {[...new Set([...connectionNames, step.connection].filter(Boolean))].map(
+                      (name) => (
+                        <option key={name} value={name}>
+                          {name}
+                        </option>
+                      ),
+                    )}
+                  </select>
+                ) : (
+                  <input
+                    className="form-control font-monospace"
+                    value={step.connection}
+                    placeholder={t.noConnectionsYet}
+                    onChange={(event) => patch('connection', event.target.value)}
+                  />
+                )}
+              </Field>
+              <Field label={t.sql}>
+                <VariableTextarea
+                  rows={4}
+                  value={step.sql}
+                  placeholder="SELECT Id FROM todos LIMIT 1"
+                  onChange={(event) => patch('sql', event.target.value)}
                 />
               </Field>
-            )}
-          </>
-        )}
-        <div className="mt-4 pt-3" style={{ borderTop: '1px dashed var(--border-muted)' }}>
-          <div className="form-label mb-2">{t.addAssertion.replace('+ ', '')}</div>
-          <datalist id={`${listId}-sources`}>
-            {sources.map((name) => (
-              <option key={name} value={name} />
-            ))}
-          </datalist>
-          {step.assertions.map((assertion, assertionIndex) => (
-            <div
-              className="row g-2 mb-2 align-items-center"
-              key={`${step.id}-assertion-${assertionIndex}`}
-            >
-              <div className="col-md-5">
-                <input
-                  className="form-control font-monospace"
-                  list={`${listId}-sources`}
-                  value={assertion.expression}
-                  placeholder={t.assertionValue}
-                  spellCheck={false}
-                  onChange={(e) =>
-                    updateAssertion(index, assertionIndex, { expression: e.target.value })
-                  }
-                />
-              </div>
-              <div className="col-md-2">
-                <select
-                  className="form-select"
-                  aria-label={t.aggregation}
-                  title={t.aggregationHint}
-                  value={assertion.aggregate || ''}
-                  onChange={(e) =>
-                    updateAssertion(index, assertionIndex, { aggregate: e.target.value })
-                  }
-                >
-                  <option value="">{t.aggregationNone}</option>
-                  {aggregations.map((name) => (
-                    <option key={name} value={name}>
-                      {name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="col-md-2">
-                <select
-                  className="form-select"
-                  value={assertion.operator}
-                  onChange={(e) =>
-                    updateAssertion(index, assertionIndex, { operator: e.target.value })
-                  }
-                >
-                  <option>==</option>
-                  <option>!=</option>
-                  <option>&gt;</option>
-                  <option>&gt;=</option>
-                  <option>&lt;</option>
-                  <option>&lt;=</option>
-                  <option>contains</option>
-                  <option>exists</option>
-                </select>
-              </div>
-              <div className="col-md-2">
-                <VariableInput
-                  value={assertion.expected}
-                  placeholder="expected"
-                  onChange={(e) =>
-                    updateAssertion(index, assertionIndex, { expected: e.target.value })
-                  }
-                />
-              </div>
-              <div className="col-auto">
-                <button
-                  className="btn btn-outline-danger px-2"
-                  aria-label={t.remove}
-                  title={t.remove}
-                  onClick={() => removeAssertion(index, assertionIndex)}
-                >
-                  &times;
-                </button>
-              </div>
-            </div>
-          ))}
-          <div className="d-flex justify-content-end">
-            <button
-              className="btn btn-sm btn-outline-secondary"
-              onClick={() => addAssertion(index)}
-            >
-              {t.addAssertion}
-            </button>
-          </div>
+            </>
+          )}
+
+          <AssertionsEditor t={t} step={step} index={index} {...assertionProps} />
         </div>
-      </div>
+      )}
     </article>
   );
 }
@@ -287,119 +392,200 @@ export default function Builder({
   t,
   test,
   setTest,
+  dirty,
+  isNew,
   saveTest,
   deleteTest,
+  back,
   addStep,
   removeStep,
+  moveStep,
   updateStep,
   addAssertion,
   updateAssertion,
   removeAssertion,
   aggregations,
+  connectionNames,
 }) {
-  return (
-    <section>
-      <div className="card mb-3">
-        <div className="card-header d-flex justify-content-between align-items-center gap-2">
-          <span>{test.name ? `${t.builder} — ${test.name}` : t.builder}</span>
-          <div className="d-flex flex-wrap gap-2">
-            <button className="btn btn-sm btn-outline-primary" onClick={() => addStep('request')}>
-              {t.requestStep}
-            </button>
-            <button className="btn btn-sm btn-outline-primary" onClick={() => addStep('db_query')}>
-              {t.dbStep}
-            </button>
-            <button className="btn btn-sm btn-primary" onClick={saveTest}>
-              {t.saveTest}
-            </button>
-            <button
-              className="btn btn-sm btn-outline-danger"
-              disabled={!test.name}
-              onClick={deleteTest}
-            >
-              {t.delete}
-            </button>
-          </div>
-        </div>
-        <div className="card-body">
-          <div className="row g-3 mb-3">
-            <Field label={t.method} className="col-md-2">
-              <select
-                className="form-select"
-                value={test.method}
-                onChange={(e) => setTest({ ...test, method: e.target.value })}
-              >
-                <option>GET</option>
-                <option>POST</option>
-                <option>PUT</option>
-                <option>PATCH</option>
-                <option>DELETE</option>
-              </select>
-            </Field>
-            <Field label={t.endpoint} className="col-md-10">
-              <input
-                className="form-control font-monospace"
-                value={test.endpoint}
-                onChange={(e) => setTest({ ...test, endpoint: e.target.value })}
-              />
-            </Field>
-          </div>
-          <div className="row g-3 mb-3">
-            <Field label={t.testName} className="col-md-4">
-              <input
-                className="form-control"
-                value={test.name}
-                onChange={(e) => setTest({ ...test, name: e.target.value })}
-              />
-            </Field>
-            <Field label={t.description} className="col-md-8">
-              <input
-                className="form-control"
-                value={test.description}
-                onChange={(e) => setTest({ ...test, description: e.target.value })}
-              />
-            </Field>
-          </div>
-          {test.steps.length ? (
-            test.steps.map((step, index) => (
-              <StepCard
-                key={`${step.id}-${index}`}
-                t={t}
-                step={step}
-                index={index}
-                updateStep={updateStep}
-                removeStep={removeStep}
-                addAssertion={addAssertion}
-                updateAssertion={updateAssertion}
-                removeAssertion={removeAssertion}
-                aggregations={aggregations}
-                savedNames={test.steps
-                  .slice(0, index)
-                  .map((previous) => previous.save_as)
-                  .filter(Boolean)}
-              />
-            ))
-          ) : (
-            <p className="text-secondary mb-0">{t.noSteps}</p>
-          )}
-        </div>
-      </div>
-      <YamlPanel t={t} test={test} />
-    </section>
+  const [open, setOpen] = useState(
+    () => new Set(test.steps.length <= 3 ? test.steps.map((_, i) => i) : [0]),
   );
-}
+  const [showYaml, setShowYaml] = useState(false);
+  const previousCount = useRef(test.steps.length);
 
-function YamlPanel({ t, test }) {
-  const [open, setOpen] = useState(false);
+  // A newly added step opens itself; a removed one shifts the open indexes.
+  useEffect(() => {
+    if (test.steps.length > previousCount.current) {
+      setOpen((current) => new Set([...current, test.steps.length - 1]));
+    }
+    previousCount.current = test.steps.length;
+  }, [test.steps.length]);
+
+  const remove = (index) => {
+    setOpen(
+      (current) =>
+        new Set([...current].filter((i) => i !== index).map((i) => (i > index ? i - 1 : i))),
+    );
+    removeStep(index);
+  };
+  const move = (index, direction) => {
+    setOpen((current) => {
+      const next = new Set(current);
+      const wasOpen = current.has(index);
+      const otherWasOpen = current.has(index + direction);
+      next.delete(index);
+      next.delete(index + direction);
+      if (wasOpen) next.add(index + direction);
+      if (otherWasOpen) next.add(index);
+      return next;
+    });
+    moveStep(index, direction);
+  };
+  const toggle = (index) =>
+    setOpen((current) => {
+      const next = new Set(current);
+      if (next.has(index)) next.delete(index);
+      else next.add(index);
+      return next;
+    });
+  const allOpen = test.steps.length > 0 && open.size >= test.steps.length;
+  const canSave = test.name.trim() && test.endpoint.trim();
+
   return (
-    <div className="card">
-      <div className="card-header d-flex justify-content-between align-items-center">
-        <span>{t.yaml}</span>
-        <button className="btn btn-sm btn-outline-secondary" onClick={() => setOpen(!open)}>
-          {open ? t.hideYaml : t.showYaml}
+    <div className="page">
+      <div className="builder-bar">
+        <button type="button" className="btn btn-ghost btn-sm back-link" onClick={back}>
+          <Icon name="arrowLeft" size={14} /> {t.cases}
+        </button>
+        <span className="spacer" />
+        {dirty && (
+          <span className="dirty-label">
+            <span className="dirty-dot" /> {t.unsavedChanges}
+          </span>
+        )}
+        <button
+          type="button"
+          className={`btn btn-ghost btn-sm ${showYaml ? 'active' : ''}`}
+          onClick={() => setShowYaml(!showYaml)}
+        >
+          <Icon name="code" size={14} /> YAML
+        </button>
+        {!isNew && (
+          <button type="button" className="btn btn-ghost btn-sm danger" onClick={deleteTest}>
+            <Icon name="trash" size={14} /> {t.delete}
+          </button>
+        )}
+        <button
+          type="button"
+          className="btn btn-primary"
+          disabled={!canSave || (!dirty && !isNew)}
+          onClick={saveTest}
+        >
+          {t.saveTest}
         </button>
       </div>
-      {open && <pre className="card-body mb-0 text-light">{yamlPreview(test, t)}</pre>}
+
+      <header className="test-header">
+        <input
+          className="title-input"
+          value={test.name}
+          placeholder={t.testNamePlaceholder}
+          aria-label={t.testName}
+          autoFocus={isNew}
+          onChange={(event) => setTest({ ...test, name: event.target.value })}
+        />
+        <input
+          className="subtitle-input"
+          value={test.description}
+          placeholder={t.descriptionPlaceholder}
+          aria-label={t.description}
+          onChange={(event) => setTest({ ...test, description: event.target.value })}
+        />
+        <div className="endpoint-line">
+          <select
+            className="form-select method-select"
+            aria-label={t.method}
+            value={test.method}
+            onChange={(event) => setTest({ ...test, method: event.target.value })}
+          >
+            {METHODS.map((method) => (
+              <option key={method}>{method}</option>
+            ))}
+          </select>
+          <input
+            className="form-control font-monospace"
+            value={test.endpoint}
+            placeholder="/todos/{id}"
+            aria-label={t.endpoint}
+            onChange={(event) => setTest({ ...test, endpoint: event.target.value })}
+          />
+        </div>
+        <p className="field-hint">{t.endpointHint}</p>
+        {!canSave && dirty && <p className="field-hint warn">{t.nameAndEndpointRequired}</p>}
+      </header>
+
+      <div className="section-head steps-head">
+        <h3>
+          {t.steps} <span className="count-pill">{test.steps.length}</span>
+        </h3>
+        {test.steps.length > 1 && (
+          <button
+            type="button"
+            className="btn btn-link"
+            onClick={() =>
+              setOpen(allOpen ? new Set() : new Set(test.steps.map((_, index) => index)))
+            }
+          >
+            {allOpen ? t.collapseAll : t.expandAll}
+          </button>
+        )}
+      </div>
+
+      <div className="steps">
+        {test.steps.map((step, index) => (
+          <StepCard
+            key={index}
+            t={t}
+            step={step}
+            index={index}
+            total={test.steps.length}
+            open={open.has(index)}
+            toggle={() => toggle(index)}
+            updateStep={updateStep}
+            removeStep={remove}
+            moveStep={move}
+            connectionNames={connectionNames}
+            aggregations={aggregations}
+            addAssertion={addAssertion}
+            updateAssertion={updateAssertion}
+            removeAssertion={removeAssertion}
+            savedNames={test.steps
+              .slice(0, index)
+              .map((previous) => previous.save_as)
+              .filter(Boolean)}
+          />
+        ))}
+        <div className="add-step">
+          {test.steps.length === 0 && <p className="muted">{t.noSteps}</p>}
+          <div className="add-step-buttons">
+            <button type="button" className="btn btn-dashed" onClick={() => addStep('request')}>
+              <Icon name="globe" size={15} /> {t.requestStep}
+            </button>
+            <button type="button" className="btn btn-dashed" onClick={() => addStep('db_query')}>
+              <Icon name="database" size={15} /> {t.dbStep}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {showYaml && (
+        <section className="yaml-panel">
+          <div className="section-head">
+            <h4>{t.yaml}</h4>
+          </div>
+          <pre>{yamlPreview(test, t)}</pre>
+        </section>
+      )}
     </div>
   );
 }

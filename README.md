@@ -16,8 +16,9 @@ Axiom is an API test platform and it's designed to write tests without using a p
   - open or create a collection folder
   - import a collection from an OpenAPI/Swagger URL
   - edit collection variables and run settings
-  - create, edit and delete test scenarios with a visual builder
-  - run the collection and view the report
+  - create, edit, reorder and delete test steps with a visual builder (unsaved-changes tracking, collapsible steps)
+  - run the collection and see, per test, which step and assertion failed and why (expected vs actual)
+  - reopens the last collection on launch, with a recent-collections list
   - English and Turkish UI, light/dark/system theme
 
 ## Project structure
