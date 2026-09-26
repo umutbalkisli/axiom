@@ -103,12 +103,26 @@ public sealed class CollectionManagementService
         return document;
     }
 
+    /// <summary>
+    /// Saves a test. With <see cref="SaveTestCaseRequest.FileName"/> of an existing file, that file is updated
+    /// (and renamed to follow a changed test name, unless its name was customised). Otherwise a new file is
+    /// created with a unique, name-derived file name; an existing test is never overwritten by accident.
+    /// </summary>
     public (string FilePath, string FileName) SaveTest(string folderPath, SaveTestCaseRequest request)
     {
-        Directory.CreateDirectory(CollectionPaths.TestsDirectory(folderPath));
+        var testsDirectory = CollectionPaths.TestsDirectory(folderPath);
+        Directory.CreateDirectory(testsDirectory);
 
-        var fileName = CollectionPaths.ToTestFileName(ToSafeFileName(string.IsNullOrWhiteSpace(request.FileName) ? request.Name : request.FileName));
-        var targetPath = CollectionPaths.TestFile(folderPath, fileName);
+        var currentName = string.IsNullOrWhiteSpace(request.FileName)
+            ? null
+            : CollectionPaths.ToTestFileName(request.FileName.Trim());
+        var currentPath = currentName is null ? null : CollectionPaths.TestFile(folderPath, currentName);
+        var updating = currentPath is not null && File.Exists(currentPath);
+
+        var targetName = updating
+            ? ResolveNameForUpdate(folderPath, currentName!, currentPath!, request.Name)
+            : UniqueFileName(folderPath, request.FileNameHint ?? (currentName is null ? request.Name : CollectionPaths.ToTestId(currentName)), excluding: null);
+        var targetPath = CollectionPaths.TestFile(folderPath, targetName);
 
         var document = new TestCaseDocument
         {
@@ -121,7 +135,45 @@ public sealed class CollectionManagementService
         };
 
         SerializeFile(targetPath, document);
-        return (targetPath, fileName);
+        if (updating && !string.Equals(targetName, currentName, StringComparison.OrdinalIgnoreCase))
+        {
+            File.Delete(currentPath!);
+        }
+
+        return (targetPath, targetName);
+    }
+
+    public bool TestExists(string folderPath, string fileNameOrId) =>
+        File.Exists(CollectionPaths.TestFile(folderPath, fileNameOrId));
+
+    /// <summary>Keeps the file name in step with the test name, but only if the file still has the name Axiom gave it.</summary>
+    private string ResolveNameForUpdate(string folderPath, string currentName, string currentPath, string newTestName)
+    {
+        var oldTestName = DeserializeFile<TestCaseDocument>(currentPath)?.Name;
+        var currentId = CollectionPaths.ToTestId(currentName);
+        var followsName = TestFileNames.IsGeneratedFrom(currentId, oldTestName);
+        var alreadyMatches = TestFileNames.IsGeneratedFrom(currentId, newTestName);
+        return followsName && !alreadyMatches
+            ? UniqueFileName(folderPath, newTestName, excluding: currentPath)
+            : currentName;
+    }
+
+    private static string UniqueFileName(string folderPath, string source, string? excluding)
+    {
+        var slug = TestFileNames.Slug(source);
+        var candidate = slug;
+        for (var number = 2; IsTaken(folderPath, candidate, excluding); number++)
+        {
+            candidate = $"{slug}-{number}";
+        }
+
+        return CollectionPaths.ToTestFileName(candidate);
+    }
+
+    private static bool IsTaken(string folderPath, string id, string? excluding)
+    {
+        var path = CollectionPaths.TestFile(folderPath, id);
+        return File.Exists(path) && !string.Equals(path, excluding, StringComparison.OrdinalIgnoreCase);
     }
 
     public void DeleteTest(string folderPath, string fileName)
@@ -143,34 +195,6 @@ public sealed class CollectionManagementService
     {
         var content = YamlSerialization.Serializer.Serialize(document);
         File.WriteAllText(path, content);
-    }
-
-    private static string ToSafeFileName(string value)
-    {
-        var raw = value
-            .Trim()
-            .ToLowerInvariant()
-            .Replace(CollectionPaths.TestFileSuffix, string.Empty, StringComparison.OrdinalIgnoreCase);
-
-        var builder = new StringBuilder(raw.Length);
-        var prevDash = false;
-        foreach (var ch in raw)
-        {
-            if (char.IsLetterOrDigit(ch) || ch == '_')
-            {
-                builder.Append(ch);
-                prevDash = false;
-                continue;
-            }
-
-            if ((ch is '-' or ' ') && !prevDash)
-            {
-                builder.Append('-');
-                prevDash = true;
-            }
-        }
-
-        return builder.ToString().Trim('-');
     }
 
     private static string ToDisplayName(string value)

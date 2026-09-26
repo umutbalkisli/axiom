@@ -92,6 +92,9 @@ export const strings = {
     description: 'Description',
     endpoint: 'Endpoint',
     endpointHint: 'Used to group this test in the sidebar and in results.',
+    fileHint:
+      'The file name follows the test name automatically, unless you have renamed the file yourself.',
+    newFileHint: 'The file name is chosen from the test name when you save.',
     nameAndEndpointRequired: 'A name and an endpoint are needed before saving.',
     method: 'Method',
     steps: 'Steps',
@@ -259,6 +262,8 @@ export const strings = {
     description: 'Açıklama',
     endpoint: 'Endpoint',
     endpointHint: 'Bu testi kenar çubuğunda ve sonuçlarda gruplamak için kullanılır.',
+    fileHint: 'Dosyayı kendiniz yeniden adlandırmadıysanız dosya adı test adını otomatik izler.',
+    newFileHint: 'Dosya adı, kaydettiğinizde test adından seçilir.',
     nameAndEndpointRequired: 'Kaydetmeden önce ad ve endpoint gerekli.',
     method: 'Yöntem',
     steps: 'Adımlar',

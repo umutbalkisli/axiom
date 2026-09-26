@@ -76,6 +76,7 @@ export default function App() {
   const [localSecretNames, setLocalSecretNames] = useState([]);
   const [tests, setTests] = useState([]);
   const [activeFile, setActiveFile] = useState(null);
+  const [builderKey, setBuilderKey] = useState(0);
   const [test, setTest] = useState(emptyTest);
   const [savedTest, setSavedTest] = useState(JSON.stringify(emptyTest()));
   const [report, setReport] = useState(null);
@@ -249,6 +250,7 @@ export default function App() {
       steps: normalizeSteps(data.steps || []),
     };
     setActiveFile(fileName);
+    setBuilderKey((key) => key + 1);
     setTest(loaded);
     setSavedTest(JSON.stringify(loaded));
     setView('builder');
@@ -256,6 +258,7 @@ export default function App() {
   const newTest = () => {
     const fresh = emptyTest();
     setActiveFile(null);
+    setBuilderKey((key) => key + 1);
     setTest(fresh);
     setSavedTest(JSON.stringify(fresh));
     setView('builder');
@@ -265,7 +268,8 @@ export default function App() {
     try {
       const result = await api.saveTestCase({
         folderPath: folder,
-        fileName: activeFile?.replace(/\.test\.yaml$/, '') || slugify(test.name),
+        // Editing an existing file keeps (or follows) its name; a new test gets a unique name from the host.
+        fileName: activeFile,
         name: test.name,
         description: test.description,
         method: test.method,
@@ -512,9 +516,10 @@ export default function App() {
           )}
           {view === 'builder' && (
             <Builder
-              key={activeFile || 'new'}
+              key={builderKey}
               t={t}
               test={test}
+              fileName={activeFile}
               setTest={setTest}
               dirty={testDirty}
               isNew={!activeFile}
@@ -587,15 +592,4 @@ function toCollectionState(data) {
     connections: data?.connections || {},
     secrets: data?.secrets || {},
   };
-}
-
-function slugify(value) {
-  return (
-    value
-      .toLowerCase()
-      .trim()
-      .replace(/[^a-z0-9-_]+/g, '-')
-      .replace(/-+/g, '-')
-      .replace(/^-|-$/g, '') || 'new-test'
-  );
 }

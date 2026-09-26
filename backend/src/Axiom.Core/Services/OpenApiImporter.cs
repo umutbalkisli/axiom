@@ -1,4 +1,5 @@
 using Axiom.Documents;
+using Axiom.Parsing;
 using Axiom.Runtime;
 using Axiom.Serialization;
 using System.Text.Json;
@@ -43,9 +44,15 @@ public sealed class OpenApiImporter(HttpClient httpClient, CollectionInitializer
                 var method = operation.Key.ToUpperInvariant();
                 var operationId = details["operationId"]?.GetValue<string>() ?? $"{method.ToLowerInvariant()}-{path.Key.Trim('/').Replace('/', '-') }";
                 var summary = details["summary"]?.GetValue<string>() ?? details["description"]?.GetValue<string>() ?? $"{method} {path.Key}";
+                // Re-importing must not overwrite tests that were already imported (and maybe edited).
+                if (manager.TestExists(folderPath, TestFileNames.Slug(operationId)))
+                {
+                    continue;
+                }
+
                 manager.SaveTest(folderPath, new SaveTestCaseRequest
                 {
-                    FileName = operationId,
+                    FileNameHint = operationId,
                     Name = summary,
                     Description = details["description"]?.GetValue<string>() ?? string.Empty,
                     Endpoint = path.Key,

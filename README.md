@@ -111,6 +111,15 @@ my-collection/
     ...
 ```
 
+### Test file names
+
+The test's real name lives inside the file (`name:`); the file name is only a short, readable handle.
+
+- A new test gets a slug of its name: lowercase ASCII (`Şifre Değiştir` becomes `sifre-degistir`), at most 48 characters, cut on a word boundary. A long name never makes a long file name.
+- Names never collide: if the file exists, a suffix is added (`get-one-todo-2`). Saving a new test can no longer overwrite another one.
+- Renaming a test renames its file to match, as long as the file still has the name Axiom generated. If you renamed the file yourself, Axiom leaves it alone.
+- Re-importing an OpenAPI document skips operations that were already imported, so edited tests are not overwritten.
+
 ## YAML format (v0)
 
 Collection file: `collection.yaml`

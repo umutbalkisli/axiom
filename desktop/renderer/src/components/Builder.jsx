@@ -399,6 +399,7 @@ export default function Builder({
   setTest,
   dirty,
   isNew,
+  fileName,
   saveTest,
   deleteTest,
   back,
@@ -527,6 +528,10 @@ export default function Builder({
           />
         </div>
         <p className="field-hint">{t.endpointHint}</p>
+        <p className="field-hint file-hint" title={t.fileHint}>
+          <Icon name="code" size={12} />
+          <span className="mono">{fileName ? `tests/${fileName}` : t.newFileHint}</span>
+        </p>
         {!canSave && dirty && <p className="field-hint warn">{t.nameAndEndpointRequired}</p>}
       </header>
 

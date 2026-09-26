@@ -76,6 +76,16 @@
   flex: 1;
 }
 
+.file-hint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: -2px;
+}
+.file-hint .mono {
+  font-size: 11.5px;
+}
+
 .steps-head {
   margin-bottom: 12px;
 }

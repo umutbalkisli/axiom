@@ -201,8 +201,15 @@ internal static class HostServerService
             return ValidationFailed(errors);
         }
 
-        var result = manager.SaveTest(folderPath, payload);
-        return Results.Ok(new { result.FilePath, result.FileName });
+        try
+        {
+            var result = manager.SaveTest(folderPath, payload);
+            return Results.Ok(new { result.FilePath, result.FileName });
+        }
+        catch (ArgumentException ex)
+        {
+            return Results.BadRequest(new { message = ex.Message });
+        }
     }
 
     private static IResult DeleteTest(string folderPath, string fileName, CollectionManagementService manager)
