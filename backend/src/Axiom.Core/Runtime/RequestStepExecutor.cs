@@ -1,7 +1,6 @@
 using System.Diagnostics;
 using System.Net.Http.Headers;
 using System.Text;
-using System.Text.Json.Nodes;
 using Axiom.Models;
 
 namespace Axiom.Runtime;
@@ -55,27 +54,21 @@ public sealed class RequestStepExecutor(HttpClient httpClient, AssertionEngine a
         variables[$"{step.Id}_duration_ms"] = watch.Elapsed.TotalMilliseconds;
         variables[$"{step.Id}_response_text"] = responseBody;
 
-        JsonNode? responseJson = null;
-        try
-        {
-            responseJson = JsonNode.Parse(responseBody);
-            variables[$"{step.Id}_response_json"] = responseJson;
-        }
-        catch
-        {
-            // Body is not JSON; text is already available.
-        }
+        // The body is only parsed as JSON if an assertion or a later step reads it.
+        var responseJson = new LazyJson(responseBody);
+        variables[$"{step.Id}_response_json"] = responseJson;
 
         if (!string.IsNullOrWhiteSpace(step.SaveAs))
         {
-            variables[step.SaveAs] = responseJson ?? responseBody;
+            variables[step.SaveAs] = responseJson;
         }
 
         var assertionResults = assertionEngine.EvaluateAll(step, variables, source => source switch
         {
             "status" => statusCode,
             "duration_ms" => watch.Elapsed.TotalMilliseconds,
-            "body" or "response_body" => responseJson ?? responseBody,
+            "body" or "response_body" => responseJson,
+            "body_text" => responseBody,
             _ => variables.TryGetValue(source, out var value) ? value : null,
         });
 

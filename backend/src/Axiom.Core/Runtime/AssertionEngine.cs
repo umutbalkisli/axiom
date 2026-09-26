@@ -27,11 +27,26 @@ public sealed class AssertionEngine
         var results = new List<AssertionResult>(step.Assert.Count);
         foreach (var assertion in step.Assert)
         {
-            var actual = TemplateResolver.ResolveFrom(sourceResolver(assertion.Source), assertion.Path);
-            results.Add(Evaluate(assertion, actual, context));
+            var source = sourceResolver(assertion.Source);
+            results.Add(Evaluate(assertion, ReadValue(assertion, source), context));
         }
 
         return results;
+    }
+
+    /// <summary>The value an assertion looks at: the path applied to the source, or the raw text for a text search over a whole response body.</summary>
+    private object? ReadValue(AssertionDefinition assertion, object? source)
+    {
+        if (source is LazyJson body
+            && string.IsNullOrWhiteSpace(assertion.Path)
+            && string.IsNullOrWhiteSpace(assertion.Aggregate)
+            && _operators.TryGetValue(assertion.Operator.Trim(), out var comparison)
+            && comparison.SearchesRawText)
+        {
+            return body.Text;
+        }
+
+        return TemplateResolver.ResolveFrom(source, assertion.Path);
     }
 
     public AssertionResult Evaluate(AssertionDefinition assertion, object? actualValue, IReadOnlyDictionary<string, object?> context)
@@ -62,7 +77,7 @@ public sealed class AssertionEngine
             var actual = Aggregate(assertion.Aggregate, actualValue);
             var passed = comparison.Evaluate(actual, expected);
 
-            return Result(actual, passed, passed ? null : $"Expected '{operatorName}' with value '{expected}', actual '{actual}'");
+            return Result(actual, passed, passed ? null : $"Expected '{operatorName}' with value '{ValueComparison.Preview(expected)}', actual '{ValueComparison.Preview(actual)}'");
         }
         catch (Exception ex)
         {

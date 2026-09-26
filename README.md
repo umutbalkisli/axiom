@@ -270,7 +270,7 @@ Provider connection settings come only from the environment, never from collecti
 
 Sources:
 
-- Request step: `status`, `duration_ms`, `body` (parsed JSON when possible)
+- Request step: `status`, `duration_ms`, `body` (parsed JSON when possible, otherwise text), `body_text` (the raw response text)
 - DB step: `row_count`, `duration_ms`, `rows`
 - Any context variable name can also be referenced
 
@@ -312,6 +312,14 @@ Operators:
 - `==`, `!=`, `>`, `>=`, `<`, `<=`, `contains`, `not_contains`, `exists`, `not_exists`
 
 String comparisons are case-insensitive, and numeric values are compared numerically.
+
+How values are compared:
+
+- `==` / `!=` on lists and objects compare them structurally (key order and whitespace don't matter). The expected value may be JSON text, e.g. `{"a":[1,2]}`.
+- `contains` / `not_contains`: text contains the text; a list contains an item that does (`[1,5]` does not contain `15`); an object contains a key or a value that does. On a whole response `body` (no `path`) the raw response text is searched, which is fast even for very large responses. Use `body_text` to search the raw text of a path-less body explicitly.
+- `>`, `>=`, `<`, `<=` need single values; use an aggregation (such as `count`) for lists.
+- Failure messages show a short preview of large values, while the result still keeps the complete actual and expected values.
+- A response body is only parsed as JSON when an assertion or a later step reads it, so status-only checks on large responses are cheap.
 
 ## Electron desktop
 

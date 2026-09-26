@@ -37,7 +37,8 @@ public sealed class IncludeStepExecutor : IStepExecutor
             var outcome = await context.Shared.RunOnceAsync(id, () => RunIsolatedAsync(context, definition, chain, cancellationToken));
             foreach (var (name, value) in outcome.Exported)
             {
-                context.Variables[name] = value;
+                // Each test gets its own copy of a response body so parallel tests never share one JSON tree.
+                context.Variables[name] = value is LazyJson lazy ? lazy.Clone() : value;
             }
 
             children = outcome.Results;

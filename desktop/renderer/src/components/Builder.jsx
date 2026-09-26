@@ -85,7 +85,7 @@ function AssertionsEditor({
   // (and by this step itself), and the collection / test variables.
   const sources = [
     ...(step.type === 'request'
-      ? ['status', 'duration_ms', 'body']
+      ? ['status', 'duration_ms', 'body', 'body_text']
       : ['row_count', 'duration_ms', 'rows']
     ).map((name) => [name, t.sourceResult]),
     ...savedNames.map((name) => [name, t.sourceSaved]),

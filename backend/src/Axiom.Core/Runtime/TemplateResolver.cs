@@ -40,6 +40,8 @@ public static partial class TemplateResolver
             return null;
         }
 
+        current = Unlazy(current);
+
         for (var i = 1; i < segments.Length; i++)
         {
             current = ResolveSegment(current, segments[i]);
@@ -60,7 +62,7 @@ public static partial class TemplateResolver
         }
 
         var segments = path.Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        return UnwrapJson(ResolveSegments(source, segments, 0));
+        return UnwrapJson(ResolveSegments(Unlazy(source), segments, 0));
     }
 
     /// <summary>
@@ -218,10 +220,14 @@ public static partial class TemplateResolver
         return true;
     }
 
+    /// <summary>A lazily parsed response body becomes its JSON tree (or its text when it is not JSON).</summary>
+    private static object? Unlazy(object? value) => value is LazyJson lazy ? lazy.Value : value;
+
     internal static object? UnwrapJson(object? value)
     {
         return value switch
         {
+            LazyJson lazy => UnwrapJson(lazy.Value),
             JsonValue jsonValue => jsonValue.GetValue<object?>(),
             JsonNode jsonNode => jsonNode,
             _ => value,
