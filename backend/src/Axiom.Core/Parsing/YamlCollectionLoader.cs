@@ -1,31 +1,25 @@
 using Axiom.Defaults;
 using Axiom.Models;
 using Microsoft.Data.Sqlite;
-using YamlDotNet.Serialization;
-using YamlDotNet.Serialization.NamingConventions;
+using Axiom.Serialization;
 
 namespace Axiom.Parsing;
 
 public sealed class YamlCollectionLoader
 {
-    private readonly IDeserializer _deserializer = new DeserializerBuilder()
-                                                        .WithNamingConvention(UnderscoredNamingConvention.Instance)
-                                                        .IgnoreUnmatchedProperties()
-                                                        .Build();
-
     public LoadedCollection Load(string folderPath)
     {
         var root = Path.GetFullPath(folderPath);
-        var collectionPath = Path.Combine(root, "collection.yaml");
+        var collectionPath = CollectionPaths.CollectionFile(root);
         if (!File.Exists(collectionPath))
         {
-            throw new FileNotFoundException("collection.yaml not found in folder", collectionPath);
+            throw new FileNotFoundException($"{CollectionPaths.CollectionFileName} not found in folder", collectionPath);
         }
 
         var collection = DeserializeFile<CollectionDefinition>(collectionPath);
         NormalizeCollection(collection, root);
 
-        var testsPath = Path.Combine(root, "tests");
+        var testsPath = CollectionPaths.TestsDirectory(root);
         if (!Directory.Exists(testsPath))
         {
             return new LoadedCollection
@@ -36,7 +30,7 @@ public sealed class YamlCollectionLoader
             };
         }
 
-        var tests = Directory.EnumerateFiles(testsPath, "*.test.yaml", SearchOption.AllDirectories)
+        var tests = Directory.EnumerateFiles(testsPath, CollectionPaths.TestFilePattern, SearchOption.AllDirectories)
                              .OrderBy(x => x, StringComparer.OrdinalIgnoreCase)
                              .Select(path =>
                              {
@@ -57,7 +51,7 @@ public sealed class YamlCollectionLoader
     private T DeserializeFile<T>(string path)
     {
         var yaml = File.ReadAllText(path);
-        return _deserializer.Deserialize<T>(yaml) ?? throw new InvalidOperationException($"YAML could not be parsed: {path}");
+        return YamlSerialization.Deserializer.Deserialize<T>(yaml) ?? throw new InvalidOperationException($"YAML could not be parsed: {path}");
     }
 
     private static void NormalizeCollection(CollectionDefinition collection, string rootPath)

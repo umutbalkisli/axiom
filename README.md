@@ -25,17 +25,32 @@ Axiom is an API test platform and it's designed to write tests without using a p
 ```
 backend/
   Axiom.slnx
-  src/Axiom/
-    Models/       YAML contracts (collection, test case, step, assertion, ...)
-    Documents/    DTOs exchanged with the desktop app
-    Parsing/      YAML collection loader
-    Runtime/      test-case executor, collection runner, assertion engine,
-                  template resolver, DB query executor
-    Services/     AxiomService, collection management, host server, report formatter
-    ProgramEntry.cs   CLI entry point
-desktop/          Electron shell + Vite/React renderer
-samples/          local sample collections (git-ignored)
+  src/Axiom.Core/     engine library (no ASP.NET dependency)
+    Models/           YAML contracts (collection, test case, step, assertion, ...)
+    Documents/        DTOs exchanged with the desktop app
+    Parsing/          YAML collection loader, collection folder layout
+    Runtime/          collection runner, test-case executor, step executors,
+                      assertion engine and operators, DB query executor,
+                      template resolver
+    Validation/       save-time validation of tests and collection settings
+    Services/         collection management, collection initializer, OpenAPI importer
+    AxiomServiceCollectionExtensions.cs   AddAxiomCore() DI registration
+  src/Axiom/          executable: CLI (`run`, `serve`) and local HTTP host
+    Hosting/          HTTP endpoints used by the desktop app
+    Services/         stdout report formatter
+desktop/              Electron shell + Vite/React renderer
+samples/              local sample collections (git-ignored)
 ```
+
+## Extending the engine
+
+Everything below is registered through DI in `AddAxiomCore()`; add your own registration instead of editing existing classes.
+
+| To add... | Implement | Notes |
+| --- | --- | --- |
+| A new step `type` | `IStepExecutor` (+ `IStepValidator` for save-time checks) | `TestCaseExecutor` picks it up by `Type` |
+| A new assertion operator | `IAssertionOperator` | Usable as `operator:` in YAML |
+| A new database provider | `IDbConnectionFactory` | Usable as `provider:` in a connection |
 
 ## Requirements
 

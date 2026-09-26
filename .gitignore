@@ -9,3 +9,5 @@ out/
 
 *.user
 *.suo
+
+.DS_Store

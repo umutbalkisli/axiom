@@ -2,18 +2,22 @@ using System.Collections.Concurrent;
 using System.Data;
 using System.Data.Common;
 using Axiom.Models;
-using Microsoft.Data.SqlClient;
-using Microsoft.Data.Sqlite;
 
 namespace Axiom.Runtime;
 
-public sealed class DbQueryExecutor : IAsyncDisposable
+public sealed class DbQueryExecutor : IDbQueryExecutor, IAsyncDisposable
 {
     private readonly ConcurrentDictionary<string, Lazy<CachedConnection>> _connections = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, IDbConnectionFactory> _factories;
+
+    public DbQueryExecutor(IEnumerable<IDbConnectionFactory> factories)
+    {
+        _factories = factories.ToDictionary(f => f.Provider, StringComparer.OrdinalIgnoreCase);
+    }
 
     public async Task<List<Dictionary<string, object?>>> QueryAsync(DbConnectionDefinition connectionDefinition, string sql, CancellationToken cancellationToken)
     {
-        var provider = connectionDefinition.Provider.Trim().ToLowerInvariant();
+        var provider = connectionDefinition.Provider.Trim();
         var connection = GetOrCreate(provider, connectionDefinition.ConnectionString);
 
         await connection.Gate.WaitAsync(cancellationToken);
@@ -47,21 +51,16 @@ public sealed class DbQueryExecutor : IAsyncDisposable
 
     private CachedConnection GetOrCreate(string provider, string connectionString)
     {
-        var key = $"{provider}\0{connectionString}";
+        if (!_factories.TryGetValue(provider, out var factory))
+        {
+            throw new InvalidOperationException($"Unsupported DB provider '{provider}'");
+        }
+
+        var key = $"{factory.Provider}\0{connectionString}";
         return _connections.GetOrAdd(
             key,
-            static (_, state) => new Lazy<CachedConnection>(() => new CachedConnection(CreateConnection(state.provider, state.connectionString))),
-            (provider, connectionString)).Value;
-    }
-
-    private static DbConnection CreateConnection(string provider, string connectionString)
-    {
-        return provider switch
-        {
-            "sqlite" => new SqliteConnection(connectionString),
-            "sqlserver" => new SqlConnection(connectionString),
-            _ => throw new InvalidOperationException($"Unsupported DB provider '{provider}'"),
-        };
+            static (_, state) => new Lazy<CachedConnection>(() => new CachedConnection(state.factory.Create(state.connectionString))),
+            (factory, connectionString)).Value;
     }
 
     private static async Task<List<Dictionary<string, object?>>> ReadAllRowsAsync(DbDataReader reader, CancellationToken cancellationToken)

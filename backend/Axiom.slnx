@@ -1,5 +1,6 @@
 <Solution>
   <Folder Name="/src/">
+    <Project Path="src/Axiom.Core/Axiom.Core.csproj" />
     <Project Path="src/Axiom/Axiom.csproj" />
   </Folder>
 </Solution>

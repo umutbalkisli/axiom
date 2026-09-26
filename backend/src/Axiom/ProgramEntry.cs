@@ -1,5 +1,9 @@
 using System.Text.Json;
+using Axiom.Hosting;
+using Axiom.Runtime;
 using Axiom.Services;
+using Axiom.Validation;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Axiom;
 
@@ -73,10 +77,10 @@ internal static class ProgramEntry
             return await WriteUsageAndReturnAsync("Usage: axiom run <collection-folder>");
         }
 
-        var service = new AxiomService();
         try
         {
-            var result = await service.RunCollectionAsync(args[1]);
+            await using var services = new ServiceCollection().AddAxiomCore().BuildServiceProvider();
+            var result = await services.GetRequiredService<CollectionRunner>().RunAsync(args[1]);
 
             if (isJsonResponseMode)
             {
@@ -165,6 +169,4 @@ internal static class ProgramEntry
     private sealed record JsonEnvelope<T>(bool Ok, T? Data, JsonError? Error);
 
     private sealed record JsonError(string Code, string Message, List<FieldError>? FieldErrors);
-
-    private sealed record FieldError(string Field, string Message);
 }

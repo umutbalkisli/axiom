@@ -1,28 +1,17 @@
 using Axiom.Documents;
+using Axiom.Parsing;
+using Axiom.Runtime;
+using Axiom.Serialization;
 using System.Text;
 using System.Text.Json;
-using YamlDotNet.Serialization;
-using YamlDotNet.Serialization.NamingConventions;
 
 namespace Axiom.Services;
 
 public sealed class CollectionManagementService
 {
-    private const string testYamlSuffix = ".test.yaml";
-
-    private readonly IDeserializer _deserializer = new DeserializerBuilder()
-        .WithNamingConvention(UnderscoredNamingConvention.Instance)
-        .IgnoreUnmatchedProperties()
-        .Build();
-
-    private readonly ISerializer _serializer = new SerializerBuilder()
-        .WithNamingConvention(UnderscoredNamingConvention.Instance)
-        .ConfigureDefaultValuesHandling(DefaultValuesHandling.OmitNull)
-        .Build();
-
     public CollectionDocument? GetCollection(string folderPath)
     {
-        var path = Path.Combine(Path.GetFullPath(folderPath), "collection.yaml");
+        var path = CollectionPaths.CollectionFile(folderPath);
         if (!File.Exists(path))
         {
             return null;
@@ -39,44 +28,42 @@ public sealed class CollectionManagementService
 
     public void SaveCollectionVariables(string folderPath, Dictionary<string, object?> variables)
     {
-        var collection = GetCollection(folderPath) ?? throw new FileNotFoundException("collection.yaml not found");
+        var collection = GetCollection(folderPath) ?? throw new FileNotFoundException($"{CollectionPaths.CollectionFileName} not found");
         collection.Variables = NormalizeDictionary(variables);
-        SerializeFile(Path.Combine(Path.GetFullPath(folderPath), "collection.yaml"), collection);
+        SerializeFile(CollectionPaths.CollectionFile(folderPath), collection);
     }
 
     public void SaveCollectionSettings(string folderPath, Dictionary<string, object?> variables, Dictionary<string, object?> connections)
     {
-        var collection = GetCollection(folderPath) ?? throw new FileNotFoundException("collection.yaml not found");
+        var collection = GetCollection(folderPath) ?? throw new FileNotFoundException($"{CollectionPaths.CollectionFileName} not found");
         collection.Variables = NormalizeDictionary(variables);
         collection.Connections = NormalizeDictionary(connections);
-        SerializeFile(Path.Combine(Path.GetFullPath(folderPath), "collection.yaml"), collection);
+        SerializeFile(CollectionPaths.CollectionFile(folderPath), collection);
     }
 
     public IReadOnlyList<TestCaseListItem> ListTests(string folderPath)
     {
-        var testsDir = Path.Combine(Path.GetFullPath(folderPath), "tests");
+        var testsDir = CollectionPaths.TestsDirectory(folderPath);
         if (!Directory.Exists(testsDir))
         {
             return [];
         }
 
         return Directory
-            .EnumerateFiles(testsDir, "*.test.yaml", SearchOption.TopDirectoryOnly)
+            .EnumerateFiles(testsDir, CollectionPaths.TestFilePattern, SearchOption.TopDirectoryOnly)
             .OrderBy(x => x, StringComparer.OrdinalIgnoreCase)
             .Select(path =>
             {
                 var fileName = Path.GetFileName(path);
                 var test = DeserializeFile<TestCaseDocument>(path);
-                var id = fileName.EndsWith(testYamlSuffix, StringComparison.OrdinalIgnoreCase)
-                    ? fileName[..^10]
-                    : fileName;
+                var id = CollectionPaths.ToTestId(fileName);
                 return new TestCaseListItem
                 {
                     FileName = fileName,
                     Id = id,
                     Name = string.IsNullOrWhiteSpace(test?.Name) ? ToDisplayName(id) : test.Name,
-                    Endpoint = test?.Endpoint ?? test?.Steps.FirstOrDefault(x => string.Equals(x.Type, "request", StringComparison.OrdinalIgnoreCase))?.Url,
-                    Method = test?.Method ?? test?.Steps.FirstOrDefault(x => string.Equals(x.Type, "request", StringComparison.OrdinalIgnoreCase))?.Method,
+                    Endpoint = test?.Endpoint ?? test?.Steps.FirstOrDefault(x => string.Equals(x.Type, RequestStepExecutor.StepType, StringComparison.OrdinalIgnoreCase))?.Url,
+                    Method = test?.Method ?? test?.Steps.FirstOrDefault(x => string.Equals(x.Type, RequestStepExecutor.StepType, StringComparison.OrdinalIgnoreCase))?.Method,
                 };
             })
             .ToList();
@@ -84,7 +71,7 @@ public sealed class CollectionManagementService
 
     public TestCaseDocument? GetTest(string folderPath, string fileName)
     {
-        var path = BuildTestPath(folderPath, fileName);
+        var path = CollectionPaths.TestFile(folderPath, fileName);
         if (!File.Exists(path))
         {
             return null;
@@ -105,14 +92,10 @@ public sealed class CollectionManagementService
 
     public (string FilePath, string FileName) SaveTest(string folderPath, SaveTestCaseRequest request)
     {
-        var testsDir = Path.Combine(Path.GetFullPath(folderPath), "tests");
-        Directory.CreateDirectory(testsDir);
+        Directory.CreateDirectory(CollectionPaths.TestsDirectory(folderPath));
 
-        var fileId = ToSafeFileName(string.IsNullOrWhiteSpace(request.FileName) ? request.Name : request.FileName);
-        var fileName = fileId.EndsWith(testYamlSuffix, StringComparison.OrdinalIgnoreCase)
-            ? fileId
-            : $"{fileId}{testYamlSuffix}";
-        var targetPath = Path.Combine(testsDir, fileName);
+        var fileName = CollectionPaths.ToTestFileName(ToSafeFileName(string.IsNullOrWhiteSpace(request.FileName) ? request.Name : request.FileName));
+        var targetPath = CollectionPaths.TestFile(folderPath, fileName);
 
         var document = new TestCaseDocument
         {
@@ -128,32 +111,24 @@ public sealed class CollectionManagementService
         return (targetPath, fileName);
     }
 
-    public static void DeleteTest(string folderPath, string fileName)
+    public void DeleteTest(string folderPath, string fileName)
     {
-        var path = BuildTestPath(folderPath, fileName);
+        var path = CollectionPaths.TestFile(folderPath, fileName);
         if (File.Exists(path))
         {
             File.Delete(path);
         }
     }
 
-    private static string BuildTestPath(string folderPath, string fileName)
-    {
-        var safeName = fileName.EndsWith(testYamlSuffix, StringComparison.OrdinalIgnoreCase)
-            ? fileName
-            : $"{fileName}{testYamlSuffix}";
-        return Path.Combine(Path.GetFullPath(folderPath), "tests", safeName);
-    }
-
-    private T? DeserializeFile<T>(string path)
+    private static T? DeserializeFile<T>(string path)
     {
         var content = File.ReadAllText(path);
-        return _deserializer.Deserialize<T>(content);
+        return YamlSerialization.Deserializer.Deserialize<T>(content);
     }
 
-    private void SerializeFile(string path, object document)
+    private static void SerializeFile(string path, object document)
     {
-        var content = _serializer.Serialize(document);
+        var content = YamlSerialization.Serializer.Serialize(document);
         File.WriteAllText(path, content);
     }
 
@@ -162,7 +137,7 @@ public sealed class CollectionManagementService
         var raw = value
             .Trim()
             .ToLowerInvariant()
-            .Replace(testYamlSuffix, string.Empty, StringComparison.OrdinalIgnoreCase);
+            .Replace(CollectionPaths.TestFileSuffix, string.Empty, StringComparison.OrdinalIgnoreCase);
 
         var builder = new StringBuilder(raw.Length);
         var prevDash = false;

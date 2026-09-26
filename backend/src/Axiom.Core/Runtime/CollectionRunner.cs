@@ -2,19 +2,20 @@ using System.Collections.Concurrent;
 using System.Threading.Channels;
 using Axiom.Models;
 using Axiom.Parsing;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Axiom.Runtime;
 
-public sealed class CollectionRunner(YamlCollectionLoader loader)
+public sealed class CollectionRunner(YamlCollectionLoader loader, IServiceScopeFactory scopeFactory)
 {
     public async Task<CollectionExecutionResult> RunAsync(string folderPath, CancellationToken cancellationToken = default)
     {
         var loaded = loader.Load(folderPath);
         var startedAt = DateTimeOffset.UtcNow;
 
-        using var httpClient = new HttpClient();
-        await using var dbQueryExecutor = new DbQueryExecutor();
-        var testExecutor = new TestCaseExecutor(httpClient, dbQueryExecutor);
+        // One scope per run: HTTP client and cached DB connections live exactly as long as the run.
+        await using var scope = scopeFactory.CreateAsyncScope();
+        var testExecutor = scope.ServiceProvider.GetRequiredService<TestCaseExecutor>();
 
         var testCases = loaded.TestCases;
         var maxParallel = Math.Max(1, loaded.Collection.RunSettings.MaxParallelTestCases);

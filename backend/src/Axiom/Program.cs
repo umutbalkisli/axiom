@@ -1,1 +1,5 @@
-﻿return await Axiom.ProgramEntry.RunAsync(args);
+﻿// #if DEBUG
+// args = ["run", "../../../../../../samples/todos-api"];
+// #endif
+
+return await Axiom.ProgramEntry.RunAsync(args);
