@@ -17,7 +17,7 @@ Axiom is an API test platform and it's designed to write tests without using a p
   - import a collection from an OpenAPI/Swagger URL
   - edit collection variables and run settings
   - create, edit, reorder and delete test steps with a visual builder (unsaved-changes tracking, collapsible steps)
-  - **Send** a single step while building a test: the steps up to it run as they are in the editor (saved or not), and its response (status, headers, JSON body) or SQL rows are shown; click any value to add a check for it
+  - **Send** a single step while building a test: the steps up to it run as they are in the editor (saved or not), and it shows what was sent (method, full URL, headers and body, or the SQL; opened by itself when the call fails, with **Copy as cURL**) and what came back (status, headers, JSON body, or SQL rows); click any value to add a check for it
   - run the whole collection, one test, or only the tests that failed last time; results appear as each test finishes, and a run can be cancelled
   - see, per test, which step and assertion failed and why (expected vs actual)
   - reopens the last collection on launch, with a recent-collections list
@@ -250,11 +250,13 @@ steps:
         operator: exists
 ```
 
+A request `body` is sent as `application/json` when it is valid JSON and as `text/plain` otherwise; a `Content-Type` header on the step (or in `request_defaults`) always wins. The builder warns while you type when a body is not valid JSON (a common slip: `{title: "foo"}` instead of `{"title": "foo"}`).
+
 Step types: `request` (`method`, `url`, `query_params`, `headers`, `body`), `db_query` (`connection`, `sql`, `save_as`) and `include` (`ref`, see Shared steps).
 
 Variable names (collection and test `variables`, and `save_as`) may contain only letters and underscores (`base_url`, `todo_id`); `secret` is reserved. A collection that breaks this rule fails to load with the offending file and name, and the desktop app rejects such names when saving.
 
-Each step also stores its results in the context as `<step_id>_status`, `<step_id>_duration_ms`, `<step_id>_response_text`, `<step_id>_response_json` (request) and `<step_id>_rows`, `<step_id>_row_count` (DB), so later steps can reference them.
+Each step also stores its results in the context as `<step_id>_status`, `<step_id>_duration_ms`, `<step_id>_response_text`, `<step_id>_response_json` (request) and `<step_id>_rows`, `<step_id>_row_count` (DB), so later steps can reference them. What a step sent is stored too, before it is sent: `<step_id>_request` (`method`, `url`, `headers`, `body`, with every template resolved) and `<step_id>_sql`.
 
 ## Secrets
 

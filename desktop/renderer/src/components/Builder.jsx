@@ -6,6 +6,18 @@ import ResponsePreview from './ResponsePreview.jsx';
 import { VariableInput, VariableTextarea } from './VariableField.jsx';
 
 const METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'];
+
+// Why a request body is not valid JSON; null when it is (or is empty). A {{template}} counts as a value.
+function jsonProblem(body) {
+  const text = (body || '').trim();
+  if (!text) return null;
+  try {
+    JSON.parse(text.replace(/\{\{[^}]*\}\}/g, '0'));
+    return null;
+  } catch (error) {
+    return error.message;
+  }
+}
 // Operator values as written in YAML, grouped for the picker. Labels come from t.operatorLabels.
 const OPERATOR_GROUPS = [
   ['opGroupCompare', ['==', '!=', '>', '>=', '<', '<=', 'approx']],
@@ -342,6 +354,10 @@ function StepCard({
   const isRequest = step.type === 'request';
   const supportsBody = isRequest && methodSupportsBody(step.method);
   const activePanel = panel === 'body' && !supportsBody ? 'params' : panel;
+  const bodyProblem = supportsBody ? jsonProblem(step.body) : null;
+  const declaresJson = step.headers.some(
+    (row) => row.key.trim().toLowerCase() === 'content-type' && /json/i.test(row.value),
+  );
   const isInclude = step.type === 'include';
   const sharedItem = sharedOptions.find((option) => option.id === step.ref);
   let summary = (step.sql || '').split('\n')[0];
@@ -466,7 +482,9 @@ function StepCard({
                     {[
                       ['params', t.queryParamsShort, step.queryParams.length],
                       ['headers', t.headersShort, step.headers.length],
-                      ...(supportsBody ? [['body', t.bodyShort, step.body ? '•' : 0]] : []),
+                      ...(supportsBody
+                        ? [['body', t.bodyShort, bodyProblem ? '!' : step.body ? '•' : 0]]
+                        : []),
                     ].map(([id, label, count]) => (
                       <button
                         type="button"
@@ -502,12 +520,22 @@ function StepCard({
                     />
                   )}
                   {activePanel === 'body' && (
-                    <VariableTextarea
-                      rows={7}
-                      value={step.body}
-                      placeholder={'{\n  "title": "New todo"\n}'}
-                      onChange={(event) => patch('body', event.target.value)}
-                    />
+                    <>
+                      <VariableTextarea
+                        rows={7}
+                        value={step.body}
+                        placeholder={'{\n  "title": "New todo"\n}'}
+                        onChange={(event) => patch('body', event.target.value)}
+                      />
+                      {bodyProblem && (
+                        <p className="field-hint warn" role="status">
+                          {(declaresJson ? t.bodyNotJsonDeclared : t.bodyNotJson).replace(
+                            '{error}',
+                            bodyProblem,
+                          )}
+                        </p>
+                      )}
+                    </>
                   )}
                 </>
               ) : (

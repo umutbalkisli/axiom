@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Net.Http.Headers;
 using System.Text;
+using System.Text.Json;
 using Axiom.Models;
 
 namespace Axiom.Runtime;
@@ -44,10 +45,13 @@ public sealed class RequestStepExecutor(HttpClient httpClient, AssertionEngine a
         var resolvedUrl = AddQueryParameters(step.Url, step.QueryParams, variables);
         using var request = new HttpRequestMessage(new HttpMethod(method), resolvedUrl);
 
+        string? body = null;
         if (!string.IsNullOrWhiteSpace(step.Body))
         {
-            var body = TemplateResolver.ResolveString(step.Body, variables);
-            request.Content = new StringContent(body, Encoding.UTF8, "application/json");
+            body = TemplateResolver.ResolveString(step.Body, variables);
+            // Only claim JSON when it is JSON: a server handed invalid JSON as application/json typically fails with a 500
+            // that hides the real mistake. A Content-Type header on the step or in request_defaults still wins.
+            request.Content = new StringContent(body, Encoding.UTF8, IsJson(body) ? "application/json" : "text/plain");
         }
 
         ApplyHeaders(request, context.Collection.RequestDefaults.Headers, variables);
@@ -58,6 +62,9 @@ public sealed class RequestStepExecutor(HttpClient httpClient, AssertionEngine a
         {
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
         }
+
+        // Recorded before sending, so it is there to look at even when no response comes back.
+        variables[$"{step.Id}_request"] = DescribeRequest(request, body);
 
         var watch = Stopwatch.StartNew();
         using var response = await httpClient.SendAsync(request, cancellationToken);
@@ -111,6 +118,39 @@ public sealed class RequestStepExecutor(HttpClient httpClient, AssertionEngine a
             Passed = assertionResults.All(a => a.Passed),
             StatusCode = statusCode,
             DurationMs = watch.Elapsed.TotalMilliseconds,
+        };
+    }
+
+    private static bool IsJson(string text)
+    {
+        try
+        {
+            using var _ = JsonDocument.Parse(text);
+            return true;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// The request as it goes out: method, URL, every header (request and content) and body.
+    /// </summary>
+    private static Dictionary<string, object?> DescribeRequest(HttpRequestMessage request, string? body)
+    {
+        var headers = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
+        foreach (var header in request.Headers.Concat(request.Content?.Headers ?? Enumerable.Empty<KeyValuePair<string, IEnumerable<string>>>()))
+        {
+            headers[header.Key] = string.Join(", ", header.Value);
+        }
+
+        return new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["method"] = request.Method.Method,
+            ["url"] = request.RequestUri?.ToString() ?? string.Empty,
+            ["headers"] = headers,
+            ["body"] = body,
         };
     }
 

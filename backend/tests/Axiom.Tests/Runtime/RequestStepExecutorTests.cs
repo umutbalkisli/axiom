@@ -71,6 +71,34 @@ public class RequestStepExecutorTests
         Assert.Equal("text/csv", handler.Requests[0].Headers["Accept"]);
     }
 
+    [Theory]
+    [InlineData("{\"title\": \"foo\"}", "application/json")]
+    [InlineData("[1, 2]", "application/json")]
+    [InlineData("{title: \"foo\"}", "text/plain")]            // keys must be quoted: not JSON
+    [InlineData("name=foo&x=1", "text/plain")]
+    public async Task A_body_is_sent_as_json_only_when_it_is_json(string body, string contentType)
+    {
+        var step = Build.Request("r", "http://x", "PATCH");
+        step.Body = body;
+
+        var (_, _, handler) = await Run(step);
+
+        Assert.StartsWith(contentType, handler.Requests[0].ContentType);
+        Assert.Equal(body, handler.Requests[0].Body);
+    }
+
+    [Fact]
+    public async Task A_content_type_header_wins_even_over_a_body_that_is_not_json()
+    {
+        var step = Build.Request("r", "http://x", "POST");
+        step.Body = "{title: \"foo\"}";
+        step.Headers = new(StringComparer.OrdinalIgnoreCase) { ["Content-Type"] = "application/json" };
+
+        var (_, _, handler) = await Run(step);
+
+        Assert.Equal("application/json", handler.Requests[0].ContentType);
+    }
+
     [Fact]
     public async Task A_content_type_header_set_on_a_request_with_a_body_is_kept()
     {

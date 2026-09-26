@@ -44,6 +44,8 @@ public sealed class DbQueryStepExecutor(IDbQueryExecutor dbQueryExecutor, Assert
         }
 
         var sql = TemplateResolver.ResolveString(step.Sql, variables);
+        // Recorded before running, so it is there to look at even when the query fails.
+        variables[$"{step.Id}_sql"] = sql;
         var resolvedConnection = new DbConnectionDefinition
         {
             Provider = connectionDefinition.Provider,

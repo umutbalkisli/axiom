@@ -144,43 +144,77 @@ public sealed class CollectionRunner(YamlCollectionLoader loader, IServiceScopeF
     }
 
     /// <summary>
-    /// What a step received, read from the variables it stores (<c>&lt;id&gt;_status</c>, <c>&lt;id&gt;_rows</c>, ...), with secrets masked.
+    /// What a step sent and received, read from the variables it stores (<c>&lt;id&gt;_request</c>,
+    /// <c>&lt;id&gt;_status</c>, <c>&lt;id&gt;_sql</c>, <c>&lt;id&gt;_rows</c>, ...), with secrets masked. A step that sent
+    /// something but got nothing back (unreachable server, failed query) still reports what it sent.
     /// </summary>
     private static StepResponse? ReadResponse(StepExecutionResult step, IReadOnlyDictionary<string, object?> variables, RunSecrets secrets)
     {
-        if (variables.TryGetValue($"{step.Id}_status", out var status) && status is int statusCode)
+        var request = ReadRequest(variables.GetValueOrDefault($"{step.Id}_request"), secrets);
+        if (request is not null)
         {
-            var text = variables.GetValueOrDefault($"{step.Id}_response_text") as string ?? string.Empty;
-            var truncated = text.Length > StepPreviewLimits.MaxBodyChars;
-            var headers = variables.GetValueOrDefault($"{step.Id}_headers") as IReadOnlyDictionary<string, object?>
-                ?? new Dictionary<string, object?>();
+            if (variables.GetValueOrDefault($"{step.Id}_status") is not int statusCode)
+            {
+                return new StepResponse { StepId = step.Id, Request = request, DurationMs = step.DurationMs };
+            }
+
+            var (text, truncated) = Cut(variables.GetValueOrDefault($"{step.Id}_response_text") as string ?? string.Empty);
             return new StepResponse
             {
                 StepId = step.Id,
+                Request = request,
                 Status = statusCode,
-                Headers = headers.ToDictionary(pair => pair.Key, pair => secrets.Mask(pair.Value?.ToString()) ?? string.Empty, StringComparer.OrdinalIgnoreCase),
-                Body = secrets.Mask(truncated ? text[..StepPreviewLimits.MaxBodyChars] : text),
+                Headers = MaskAll(variables.GetValueOrDefault($"{step.Id}_headers"), secrets),
+                Body = secrets.Mask(text),
                 BodyTruncated = truncated,
                 DurationMs = step.DurationMs,
             };
         }
 
-        if (variables.TryGetValue($"{step.Id}_rows", out var value) && value is List<Dictionary<string, object?>> rows)
+        if (variables.GetValueOrDefault($"{step.Id}_sql") is string sql)
         {
+            var rows = variables.GetValueOrDefault($"{step.Id}_rows") as List<Dictionary<string, object?>>;
             return new StepResponse
             {
                 StepId = step.Id,
-                Rows = rows.Take(StepPreviewLimits.MaxRows)
+                Sql = secrets.Mask(sql),
+                Rows = rows?.Take(StepPreviewLimits.MaxRows)
                     .Select(IReadOnlyDictionary<string, object?> (row) => row.ToDictionary(
                         pair => pair.Key,
                         pair => pair.Value is string cell ? secrets.Mask(cell) : pair.Value,
                         StringComparer.OrdinalIgnoreCase))
                     .ToList(),
-                RowCount = rows.Count,
+                RowCount = rows?.Count,
                 DurationMs = step.DurationMs,
             };
         }
 
         return null;
     }
+
+    private static SentRequest? ReadRequest(object? value, RunSecrets secrets)
+    {
+        if (value is not IReadOnlyDictionary<string, object?> request)
+        {
+            return null;
+        }
+
+        var body = request.GetValueOrDefault("body") as string;
+        var (text, truncated) = body is null ? (null, false) : Cut(body);
+        return new SentRequest
+        {
+            Method = request.GetValueOrDefault("method") as string ?? string.Empty,
+            Url = secrets.Mask(request.GetValueOrDefault("url") as string) ?? string.Empty,
+            Headers = MaskAll(request.GetValueOrDefault("headers"), secrets),
+            Body = secrets.Mask(text),
+            BodyTruncated = truncated,
+        };
+    }
+
+    private static Dictionary<string, string> MaskAll(object? headers, RunSecrets secrets) =>
+        (headers as IReadOnlyDictionary<string, object?> ?? new Dictionary<string, object?>())
+            .ToDictionary(pair => pair.Key, pair => secrets.Mask(pair.Value?.ToString()) ?? string.Empty, StringComparer.OrdinalIgnoreCase);
+
+    private static (string Text, bool Truncated) Cut(string text) =>
+        text.Length > StepPreviewLimits.MaxBodyChars ? (text[..StepPreviewLimits.MaxBodyChars], true) : (text, false);
 }

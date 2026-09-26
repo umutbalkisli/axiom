@@ -182,6 +182,91 @@ function Rows({ t, response, pick }) {
   );
 }
 
+const shellQuote = (value) => `'${String(value).replaceAll("'", `'\\''`)}'`;
+
+// The request as a curl command, to reproduce it outside Axiom. Secret values stay masked.
+function toCurl(request) {
+  return [
+    'curl',
+    '-X',
+    request.method,
+    shellQuote(request.url),
+    ...Object.entries(request.headers || {}).flatMap(([name, value]) => [
+      '-H',
+      shellQuote(`${name}: ${value}`),
+    ]),
+    ...(request.body != null ? ['--data-raw', shellQuote(request.body)] : []),
+  ].join(' ');
+}
+
+function prettyBody(body) {
+  try {
+    return JSON.stringify(JSON.parse(body), null, 2);
+  } catch {
+    return body;
+  }
+}
+
+// What the step sent: always the method and URL (or the SQL); headers and body on demand. Opens by
+// itself when the call failed, because that is when the resolved request explains the problem.
+function Sent({ t, response, failed }) {
+  const [open, setOpen] = useState(failed);
+  const [copied, setCopied] = useState(false);
+  const { request, sql } = response;
+  if (!request && !sql) return null;
+
+  const copy = async () => {
+    await navigator.clipboard.writeText(toCurl(request));
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1800);
+  };
+
+  return (
+    <div className="sent">
+      <div className="sent-head">
+        <button
+          type="button"
+          className="json-toggle sent-toggle"
+          aria-expanded={open}
+          onClick={() => setOpen(!open)}
+        >
+          <Icon name={open ? 'chevronDown' : 'chevronRight'} size={12} />
+          <span className="muted">{request ? t.sentRequest : t.sentSql}</span>
+        </button>
+        {request && (
+          <span className="mono sent-line" title={request.url}>
+            <strong>{request.method}</strong> {request.url}
+          </span>
+        )}
+        {request && (
+          <button type="button" className="json-action" title={t.copyCurlHint} onClick={copy}>
+            <Icon name={copied ? 'check' : 'copy'} size={12} /> {copied ? t.copied : t.copyCurl}
+          </button>
+        )}
+      </div>
+      {open && sql != null && <pre className="response-text">{sql}</pre>}
+      {open && request && (
+        <>
+          <div className="json-tree">
+            {Object.entries(request.headers || {}).map(([name, value]) => (
+              <div className="json-row" key={name}>
+                <span className="json-key">{name}: </span>
+                <span className="json-value json-string">{value}</span>
+              </div>
+            ))}
+          </div>
+          {request.bodyTruncated && <p className="field-hint warn">{t.responseTruncated}</p>}
+          {request.body != null ? (
+            <pre className="response-text">{prettyBody(request.body)}</pre>
+          ) : (
+            <p className="muted small">{t.noRequestBody}</p>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 function describe(assertion) {
   const target = `${assertion.source}${assertion.path ? `.${assertion.path}` : ''}`;
   const subject = assertion.aggregate ? `${assertion.aggregate}(${target})` : target;
@@ -255,20 +340,28 @@ export default function ResponsePreview({ t, step, index, preview, close, addChe
         )}
         {!response && !last?.error && <p className="muted small">{t.noResponse}</p>}
         {response && (
+          <Sent
+            key={`${response.stepId}-${response.status ?? 'none'}`}
+            t={t}
+            response={response}
+            failed={response.status == null || response.status >= 400 || Boolean(last?.error)}
+          />
+        )}
+        {response && (response.status != null || response.rows) && (
           <>
             <div className="response-meta">
               {response.status != null &&
                 (pick ? (
                   <button
                     type="button"
-                    className="chip chip-button"
+                    className={`chip chip-button ${response.status >= 400 ? 'chip-bad' : ''}`}
                     title={`status == ${response.status}`}
                     onClick={() => pick(check('status', '==', String(response.status)))}
                   >
                     {t.status} {response.status}
                   </button>
                 ) : (
-                  <span className="chip">
+                  <span className={`chip ${response.status >= 400 ? 'chip-bad' : ''}`}>
                     {t.status} {response.status}
                   </span>
                 ))}

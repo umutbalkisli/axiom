@@ -262,6 +262,15 @@ export const strings = {
     stoppedEarlier: 'Stopped at step {step} ({name}), before reaching this one.',
     noResponse: 'This step received no response.',
     closePreview: 'Close',
+    bodyNotJson:
+      'This body is not valid JSON ({error}), so it is sent as text/plain. In JSON, keys and text need double quotes: {"title": "foo"}.',
+    bodyNotJsonDeclared:
+      'This body is not valid JSON ({error}), but the Content-Type header says JSON, so the server will probably reject it. In JSON, keys and text need double quotes: {"title": "foo"}.',
+    sentRequest: 'Request sent',
+    sentSql: 'SQL run',
+    noRequestBody: 'No body was sent.',
+    copyCurl: 'Copy as cURL',
+    copyCurlHint: 'Copies the request as a curl command. Secret values stay masked (********).',
     operatorHint: '',
   },
   tr: {
@@ -520,5 +529,14 @@ export const strings = {
     stoppedEarlier: 'Bu adıma gelmeden {step}. adımda ({name}) durdu.',
     noResponse: 'Bu adım bir yanıt almadı.',
     closePreview: 'Kapat',
+    bodyNotJson:
+      'Bu gövde geçerli bir JSON değil ({error}); bu yüzden text/plain olarak gönderilir. JSON’da anahtarlar ve metinler çift tırnak içinde olmalıdır: {"title": "foo"}.',
+    bodyNotJsonDeclared:
+      'Bu gövde geçerli bir JSON değil ({error}), ancak Content-Type başlığı JSON diyor; sunucu büyük olasılıkla reddedecektir. JSON’da anahtarlar ve metinler çift tırnak içinde olmalıdır: {"title": "foo"}.',
+    sentRequest: 'Gönderilen istek',
+    sentSql: 'Çalıştırılan SQL',
+    noRequestBody: 'Gövde gönderilmedi.',
+    copyCurl: 'cURL olarak kopyala',
+    copyCurlHint: 'İsteği curl komutu olarak kopyalar. Gizli değerler maskeli (********) kalır.',
   },
 };

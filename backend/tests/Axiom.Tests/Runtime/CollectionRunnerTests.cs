@@ -327,6 +327,57 @@ public class CollectionRunnerTests
     }
 
     [Fact]
+    public async Task A_preview_shows_the_request_as_it_was_sent_with_templates_resolved_and_secrets_masked()
+    {
+        using var env = new EnvironmentScope().Set("AXIOM_PREVIEW_TOKEN", "preview-secret-value");
+        using var folder = new TempFolder();
+        folder.Write("collection.yaml", CollectionHeader
+            + "secrets:\n  token: { provider: env, key: AXIOM_PREVIEW_TOKEN }\n"
+            + "request_defaults: { headers: { X-Client: axiom } }\n");
+        var test = new Axiom.Parsing.YamlCollectionLoader().ParseTest("""
+            name: draft
+            variables: { user_id: 42 }
+            steps:
+            - id: create
+              type: request
+              method: POST
+              url: '{{base_url}}/users/{{user_id}}'
+              query_params: { verbose: 'true' }
+              headers: { Authorization: 'Bearer {{secret.token}}' }
+              body: '{ "id": {{user_id}} }'
+            """, "unsaved test");
+        await using var services = Build.Services(new StubHandler(_ => Http.Json("{\"error\":\"boom\"}", HttpStatusCode.InternalServerError)));
+
+        var preview = await services.GetRequiredService<CollectionRunner>().PreviewAsync(folder.Path, test, 0, new RunOptions());
+
+        var sent = preview.Response!.Request!;
+        Assert.Equal(500, preview.Response.Status);
+        Assert.Equal("POST", sent.Method);
+        Assert.Equal("http://api.test/users/42?verbose=true", sent.Url);
+        Assert.Equal("{ \"id\": 42 }", sent.Body);
+        Assert.Equal("Bearer ********", sent.Headers["authorization"]);
+        Assert.Equal("axiom", sent.Headers["x-client"]);                              // collection defaults are included
+        Assert.StartsWith("application/json", sent.Headers["content-type"]);
+        Assert.Equal("application/json", sent.Headers["accept"]);
+    }
+
+    [Fact]
+    public async Task A_preview_shows_what_was_sent_even_when_nothing_came_back()
+    {
+        using var folder = new TempFolder();
+        folder.Write("collection.yaml", CollectionHeader);
+        var test = new Axiom.Parsing.YamlCollectionLoader().ParseTest(
+            "name: draft\nsteps:\n- { id: r, type: request, method: GET, url: '{{base_url}}/down' }\n", "unsaved test");
+        await using var services = Build.Services(new StubHandler(_ => throw new HttpRequestException("Connection refused")));
+
+        var preview = await services.GetRequiredService<CollectionRunner>().PreviewAsync(folder.Path, test, 0, new RunOptions());
+
+        Assert.Equal("Connection refused", preview.Result.Steps[0].Error);
+        Assert.Null(preview.Response!.Status);
+        Assert.Equal("http://api.test/down", preview.Response.Request!.Url);
+    }
+
+    [Fact]
     public async Task A_preview_of_a_sql_step_returns_its_rows()
     {
         using var folder = new TempFolder();
@@ -337,7 +388,8 @@ public class CollectionRunnerTests
 
         var preview = await services.GetRequiredService<CollectionRunner>().PreviewAsync(folder.Path, test, 0, new RunOptions());
 
-        Assert.Equal(2, preview.Response!.RowCount);
+        Assert.Equal("SELECT 1 AS a UNION ALL SELECT 2", preview.Response!.Sql);
+        Assert.Equal(2, preview.Response.RowCount);
         Assert.Equal([1L, 2L], preview.Response.Rows!.Select(row => row["a"]));
         Assert.Null(preview.Response.Status);
     }

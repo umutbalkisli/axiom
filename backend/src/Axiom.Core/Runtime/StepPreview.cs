@@ -12,14 +12,14 @@ public sealed class StepPreview
     public required TestCaseExecutionResult Result { get; init; }
 
     /// <summary>
-    /// What the last step that ran received; null when it received nothing (for example an include step, or a
-    /// request that could not be sent).
+    /// What the last step that ran sent and received; null when it sent nothing (for example an include step, or a
+    /// request whose URL could not be resolved).
     /// </summary>
     public StepResponse? Response { get; init; }
 }
 
 /// <summary>
-/// What a request or SQL step received. Secret values are masked, and large bodies and result sets are cut short.
+/// What a request or SQL step sent and received. Secret values are masked, and large bodies and result sets are cut short.
 /// </summary>
 public sealed class StepResponse
 {
@@ -27,6 +27,17 @@ public sealed class StepResponse
     /// The id of the step that received it.
     /// </summary>
     public required string StepId { get; init; }
+
+    /// <summary>
+    /// The HTTP request as it was sent, with every template resolved (request steps). Present even when no response
+    /// came back (unreachable server, timeout), which is when it helps most.
+    /// </summary>
+    public SentRequest? Request { get; init; }
+
+    /// <summary>
+    /// The SQL as it was run, with every template resolved (SQL steps).
+    /// </summary>
+    public string? Sql { get; init; }
 
     /// <summary>
     /// The HTTP status code (request steps).
@@ -62,6 +73,37 @@ public sealed class StepResponse
     /// How long the step took.
     /// </summary>
     public double? DurationMs { get; init; }
+}
+
+/// <summary>
+/// An HTTP request as it was sent.
+/// </summary>
+public sealed class SentRequest
+{
+    /// <summary>
+    /// The HTTP method.
+    /// </summary>
+    public required string Method { get; init; }
+
+    /// <summary>
+    /// The full URL, including query parameters.
+    /// </summary>
+    public required string Url { get; init; }
+
+    /// <summary>
+    /// Every header sent, including defaults such as <c>Accept</c> and the body's <c>Content-Type</c>.
+    /// </summary>
+    public required IReadOnlyDictionary<string, string> Headers { get; init; }
+
+    /// <summary>
+    /// The body sent, cut to <see cref="StepPreviewLimits.MaxBodyChars"/>; null when there was none.
+    /// </summary>
+    public string? Body { get; init; }
+
+    /// <summary>
+    /// True when <see cref="Body"/> was cut short.
+    /// </summary>
+    public bool BodyTruncated { get; init; }
 }
 
 /// <summary>

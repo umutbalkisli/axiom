@@ -490,3 +490,38 @@ button.json-value:hover,
   color: var(--fg-muted);
   font-weight: 600;
 }
+
+/* What a sent step sent: method and URL always, headers and body when opened. */
+.sent {
+  margin-bottom: 10px;
+}
+.sent-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  margin-bottom: 6px;
+}
+.sent-toggle {
+  flex: none;
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+}
+.sent-line {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+.sent .json-tree + .response-text,
+.sent .json-tree + .field-hint,
+.sent .json-tree + .muted {
+  margin-top: 6px;
+}
+.chip-bad {
+  border-color: var(--danger-border);
+  background: var(--danger-subtle);
+  color: var(--danger);
+}
