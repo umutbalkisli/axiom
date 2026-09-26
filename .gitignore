@@ -1,0 +1,11 @@
+bin/
+obj/
+.vscode/
+samples/
+
+node_modules/
+dist/
+out/
+
+*.user
+*.suo

@@ -1,0 +1,75 @@
+using Axiom.Runtime;
+
+namespace Axiom.Services;
+
+internal static class ReportFormatterService
+{
+    private const string HeaderLine = "============================================================";
+    private const string DividerLine = "------------------------------------------------------------";
+
+    public static string Format(CollectionExecutionResult result)
+    {
+        var totalDuration = (result.CompletedAt - result.StartedAt).TotalMilliseconds;
+        var lines = new List<string>
+        {
+            HeaderLine,
+            $"Axiom Report - {result.CollectionName}",
+            HeaderLine,
+            $"Collection Path : {result.RootPath}",
+            $"Started At      : {result.StartedAt:O}",
+            $"Completed At    : {result.CompletedAt:O}",
+            $"Duration (ms)   : {totalDuration:F0}",
+            string.Empty,
+            $"Total: {result.TotalCount} | Passed: {result.PassedCount} | Failed: {result.FailedCount} | Success: {result.SuccessRate:F2}%",
+            DividerLine,
+        };
+
+        foreach (var test in result.TestCases)
+        {
+            AddTestLines(lines, test);
+            lines.Add(DividerLine);
+        }
+
+        return string.Join(Environment.NewLine, lines);
+    }
+
+    private static void AddTestLines(List<string> lines, TestCaseExecutionResult test)
+    {
+        var status = test.Passed ? "PASS" : "FAIL";
+        var duration = (test.CompletedAt - test.StartedAt).TotalMilliseconds;
+        lines.Add($"[{status}] {test.Name} ({duration:F0} ms)");
+        lines.Add($"  File: {test.SourceFile}");
+
+        foreach (var step in test.Steps)
+        {
+            AddStepLines(lines, step);
+        }
+    }
+
+    private static void AddStepLines(List<string> lines, StepExecutionResult step)
+    {
+        var stepStatus = step.Passed ? "OK" : "ERR";
+        lines.Add($"    - {stepStatus} {step.Id} ({step.Type}) [{step.DurationMs:F0} ms]");
+
+        if (!string.IsNullOrWhiteSpace(step.Error))
+        {
+            lines.Add($"      Error: {step.Error}");
+        }
+
+        foreach (var assertion in step.Assertions)
+        {
+            AddAssertionLines(lines, assertion);
+        }
+    }
+
+    private static void AddAssertionLines(List<string> lines, AssertionResult assertion)
+    {
+        var status = assertion.Passed ? "PASS" : "FAIL";
+        lines.Add($"      [{status}] Assertion: source={assertion.Source}, op={assertion.Operator}, expected={assertion.Expected}, actual={assertion.Actual}");
+
+        if (!assertion.Passed && !string.IsNullOrWhiteSpace(assertion.Error))
+        {
+            lines.Add($"        Error: {assertion.Error}");
+        }
+    }
+}

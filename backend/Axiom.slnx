@@ -1,0 +1,5 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Axiom/Axiom.csproj" />
+  </Folder>
+</Solution>

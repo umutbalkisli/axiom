@@ -1,0 +1,22 @@
+{
+  "name": "axiom-desktop",
+  "version": "0.1.0",
+  "description": "Axiom desktop UI for analyst-friendly API testing",
+  "main": "main.js",
+  "scripts": {
+    "build": "vite build",
+    "format": "prettier --write \"renderer/src/**/*.{js,jsx}\" \"main.js\" \"preload.js\" \"vite.config.js\"",
+    "start": "npm run build && electron ."
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^5.0.2",
+    "electron": "^37.5.1",
+    "prettier": "^3.9.8",
+    "vite": "^7.1.5"
+  },
+  "dependencies": {
+    "bootstrap": "^5.3.8",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1"
+  }
+}
