@@ -18,6 +18,7 @@ Axiom is an API test platform and it's designed to write tests without using a p
   - edit collection variables and run settings
   - create, edit, reorder and delete test steps with a visual builder (unsaved-changes tracking, collapsible steps)
   - right-click a test (or **Clone** in the builder) to copy it as a starting point for a variation: the file is copied as it is, comments included, and only its name changes (`Get user (copy)`)
+  - organise tests in folders: group the sidebar and test list by folder or by endpoint, drag a test onto a folder or use **Move to folder…**, and right-click a folder to create a test in it, run it, rename it or delete it; results are grouped by folder too, with passing folders collapsed
   - **Send** a single step while building a test: the steps up to it run as they are in the editor (saved or not), and it shows what was sent (method, full URL, headers and body, or the SQL; opened by itself when the call fails, with **Copy as cURL**) and what came back (status, headers, JSON body, or SQL rows); click any value to add a check for it
   - run the whole collection, one test, or only the tests that failed last time; results appear as each test finishes, and a run can be cancelled
   - see, per test, which step and assertion failed and why (expected vs actual)
@@ -119,12 +120,15 @@ Every request must carry `Authorization: Bearer <token>`; anything else gets `40
 | GET | `/api/secrets/providers` | List secret providers and their key formats |
 | POST | `/api/collection/import-openapi` | Import scenarios from an OpenAPI URL |
 | GET | `/api/tests` | List test scenarios |
-| GET | `/api/tests/{fileName}` | Read one scenario |
-| POST | `/api/tests` | Create or update a scenario |
-| POST | `/api/tests/{fileName}/clone` | Copy a scenario to a new file under a new name (body: `name`); only its `name:` line changes |
-| DELETE | `/api/tests/{fileName}` | Delete a scenario |
+| GET | `/api/tests/{path}` | Read one scenario; `{path}` is relative to `tests/` and may contain `/` (`orders/create.test.yaml`) |
+| POST | `/api/tests` | Create or update a scenario (a new one in `folder`, when given) |
+| POST | `/api/tests/clone` | Copy a scenario in its folder under a new name (body: `fileName`, `name`); only `name:` and `id:` change |
+| POST | `/api/tests/move` | Move a scenario to another folder as it is (body: `fileName`, `folder`; empty folder is the top level) |
+| POST | `/api/folders/rename` | Rename or move a folder with its tests (body: `folder`, `newFolder`); refused if the target exists |
+| POST | `/api/folders/delete` | Delete the tests in a folder, keeping other files (body: `folder`) |
+| DELETE | `/api/tests/{path}` | Delete a scenario |
 | POST | `/api/tests/preview` | Run an unsaved test's steps up to one of them and return what that step received (body: `test`, `stepIndex`, optional `localSecrets`, `environment`) |
-| POST | `/api/run` | Run the collection (optional body: `localSecrets`, `environment`, `tests` to run only some); streams progress, see below |
+| POST | `/api/run` | Run the collection (optional body: `localSecrets`, `environment`, `tests` to run only some: paths, ids, or `orders/` for a whole folder); streams progress, see below |
 
 `/api/run` answers with newline-delimited JSON (`application/x-ndjson`), one event per line as it happens: `{"type":"started","total":N}`, then `{"type":"test","test":{...}}` as each test finishes, then `{"type":"completed","exitCode":0,"report":"...","result":{...}}`, or `{"type":"failed","message":"..."}` if the run could not start. Closing the request cancels the run.
 
@@ -133,20 +137,34 @@ Every request must carry `Authorization: Bearer <token>`; anything else gets `40
 ```
 my-collection/
   collection.yaml
-  shared/            reusable step groups (optional)
+  shared/            reusable step groups (optional; flat, tests refer to them by name)
   tests/
     get-one-todo.test.yaml
-    ...
+    orders/          folders group tests (up to 3 deep)
+      create-order.test.yaml
+      refunds/
+        full-refund.test.yaml
 ```
+
+A test is addressed everywhere by its path relative to `tests/`, with `/` on every system: `orders/create-order.test.yaml`. The same file name can exist in different folders.
 
 ### Test file names
 
 The test's real name lives inside the file (`name:`); the file name is only a short, readable handle.
 
 - A new test gets a slug of its name: lowercase ASCII (`Şifre Değiştir` becomes `sifre-degistir`), at most 48 characters, cut on a word boundary. A long name never makes a long file name.
-- Names never collide: if the file exists, a suffix is added (`get-one-todo-2`). Saving a new test can no longer overwrite another one.
-- Renaming a test renames its file to match, as long as the file still has the name Axiom generated. If you renamed the file yourself, Axiom leaves it alone.
+- Names never collide: if the name is taken in that folder (in any letter case), a suffix is added (`get-one-todo-2`).
+- Renaming a test renames its file to match (in the same folder), as long as the file still has the name Axiom generated. If you renamed the file yourself, Axiom leaves it alone.
 - Re-importing an OpenAPI document skips operations that were already imported, so edited tests are not overwritten.
+- New folders follow the same rules (`Orders API` becomes `orders-api`); folders that already exist keep their spelling. A folder exists while it holds a test: one emptied by moving or deleting its last test is removed (unless other files are in it).
+
+**Nothing is ever overwritten.** Axiom does not check-then-write: new files are created so that the file system refuses to replace an existing one, and moves are made with overwriting turned off, so even a file that appears in between is safe; the next free name is used instead. A save that also renames writes the content in place first, so a failed rename loses nothing. A change of letter case only goes through a temporary name, so it works on disks that ignore case. Renaming a folder onto one that already exists is refused rather than merging the two.
+
+**Moving is not saving.** Moving a test or renaming its folder moves the file as it is, comments included, so Git shows a rename. Cloning copies the file as it is and changes only `name:` and `id:`.
+
+### Test ids
+
+Every test gets a stable `id:` when it is created (16 hex characters, e.g. `id: 3f9c2a7be41d06f5`); a test written before ids existed gets one the next time it is saved. The name is the label, the path is the location, and the id is the identity: it never changes, so a test keeps it through renames and moves (the desktop app remembers a test's last result by it). A clone gets a new id. Two files with the same id (typically a file copied by hand) stop a run with both files named: remove the `id:` line from the copy, or use **Clone**.
 
 ## Shared steps
 
