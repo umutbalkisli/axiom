@@ -1,0 +1,41 @@
+name: Update a post title with null
+description: Updates a post title with null and it uses a dummy secret for auth header.
+endpoint: posts/{id}
+method: PATCH
+variables: {}
+steps:
+- id: request_1
+  type: request
+  name: Get a post from resource
+  method: GET
+  url: '{{base_url}}/posts/1'
+  query_params: {}
+  headers:
+    Content-Type: application/json
+    x-dummy-auth-token: '{{secret.dummyAuthToken}}'
+  save_as: post_to_update
+  assert:
+  - source: status
+    operator: ==
+    expected: 200
+  - source: post_to_update
+    path: title
+    operator: '!='
+    expected: foo
+- id: request_2
+  type: request
+  name: Update post title
+  method: PATCH
+  url: '{{base_url}}/posts/{{post_to_update.id}}'
+  query_params: {}
+  headers: {}
+  body: '{"title": null}'
+  save_as: post_updated
+  assert:
+  - source: status
+    operator: ==
+    expected: 200
+  - source: post_updated
+    path: title
+    operator: is_null
+    expected: foo

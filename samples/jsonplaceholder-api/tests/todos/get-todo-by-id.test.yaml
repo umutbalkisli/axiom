@@ -1,0 +1,35 @@
+name: Get todo by id
+description: ''
+endpoint: todos/{id}
+method: GET
+variables: {}
+steps:
+- id: include_1
+  type: include
+  name: ''
+  query_params: {}
+  headers: {}
+  ref: get-a-global-todo-id
+  assert: []
+- id: request_2
+  type: request
+  name: Send request
+  method: GET
+  url: '{{base_url}}/todos/{{todo.0.Id}}'
+  query_params: {}
+  headers:
+    Content-Type: application/json
+  save_as: res
+  assert:
+  - source: res
+    path: '@http.status'
+    operator: ==
+    expected: 200
+  - source: res
+    path: id
+    operator: ==
+    expected: '{{todo.0.Id}}'
+  - source: res
+    path: title
+    operator: contains
+    expected: error

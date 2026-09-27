@@ -1,0 +1,21 @@
+name: Get all todos under 10ms
+description: Test fails because response time is alow above 10ms.
+endpoint: todos
+method: GET
+variables: {}
+steps:
+- id: request_1
+  type: request
+  name: Send request
+  method: GET
+  url: '{{base_url}}/todos'
+  query_params: {}
+  headers:
+    Content-Type: application/json
+  assert:
+  - source: status
+    operator: ==
+    expected: 200
+  - source: duration_ms
+    operator: <
+    expected: 10

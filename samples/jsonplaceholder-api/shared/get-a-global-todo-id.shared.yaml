@@ -1,0 +1,16 @@
+name: Get a global todo id
+description: ''
+run: once
+steps:
+- id: db_query_1
+  type: db_query
+  name: Get todo id
+  query_params: {}
+  headers: {}
+  connection: todos_db
+  sql: SELECT Id from todos LIMIT 1
+  save_as: todo
+  assert:
+  - source: row_count
+    operator: ==
+    expected: 1

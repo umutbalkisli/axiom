@@ -1,0 +1,28 @@
+name: Get all todos
+description: expected to get all todos
+endpoint: todos
+method: GET
+variables: {}
+steps:
+- id: request_1
+  type: request
+  name: Send request
+  method: GET
+  url: '{{base_url}}/todos'
+  query_params: {}
+  headers:
+    Content-Type: application/json
+  save_as: response
+  assert:
+  - source: status
+    operator: ==
+    expected: 200
+  - source: body
+    aggregate: count
+    operator: ==
+    expected: 200
+  - source: response
+    path: '*.id'
+    aggregate: sum
+    operator: ==
+    expected: 20100

@@ -1,0 +1,25 @@
+name: Json Placeholder API
+description: Json Placeholder API collection
+variables:
+  base_url: https://jsonplaceholder.typicode.com
+connections:
+  todos_db:
+    provider: sqlite
+    connection_string: Data Source=../data/todos.db;
+  comments_db:
+    provider: sqlite
+    connection_string: Data Source=../data/comments.db;
+secrets:
+  dummyAuthToken:
+    environments:
+      jenkins:
+        provider: env
+        key: dummy_auth_token
+    provider: local
+    key: dummyAuthToken
+run_settings:
+  max_parallel_test_cases: 4
+  step_timeout_seconds: 30
+request_defaults:
+  headers:
+    Accept: application/json

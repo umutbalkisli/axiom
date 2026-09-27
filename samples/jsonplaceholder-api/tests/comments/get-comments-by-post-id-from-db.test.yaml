@@ -1,0 +1,40 @@
+name: Get comments by post id from db
+description: ''
+endpoint: comments
+method: GET
+variables: {}
+steps:
+- id: include_2
+  type: include
+  name: ''
+  query_params: {}
+  headers: {}
+  ref: get-a-global-post-with-comments
+  assert: []
+- id: request_1
+  type: request
+  name: Send request
+  method: GET
+  url: '{{base_url}}/comments'
+  query_params:
+    postId: '{{post.0.PostId}}'
+  headers:
+    Content-Type: application/json
+  save_as: res
+  assert:
+  - source: status
+    operator: ==
+    expected: 200
+  - source: res
+    aggregate: count
+    operator: ==
+    expected: '{{post.0.CommentCount}}'
+  - source: res
+    path: '*.postId'
+    aggregate: avg
+    operator: ==
+    expected: '{{post.0.PostId}}'
+  - source: res
+    path: 0.email
+    operator: ==
+    expected: '{{post.0.FirstEmail}}'

@@ -1,0 +1,23 @@
+name: Get a global post with comments
+description: A post id, how many comments it has and the email of its first comment, read from the comments database.
+run: once
+steps:
+- id: db_query_1
+  type: db_query
+  name: Get post with comments
+  query_params: {}
+  headers: {}
+  connection: comments_db
+  sql: >-
+    SELECT PostId, COUNT(*) AS CommentCount,
+    (SELECT Email FROM comments AS first WHERE first.PostId = c.PostId ORDER BY first.Id LIMIT 1) AS FirstEmail
+    FROM comments AS c GROUP BY PostId ORDER BY PostId LIMIT 1
+  save_as: post
+  assert:
+  - source: row_count
+    operator: ==
+    expected: 1
+  - source: post
+    path: 0.CommentCount
+    operator: '>'
+    expected: 0

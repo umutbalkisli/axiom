@@ -1,0 +1,24 @@
+name: Get comments by post id
+description: ''
+endpoint: comments
+method: GET
+variables: {}
+steps:
+- id: request_1
+  type: request
+  name: Send request
+  method: GET
+  url: '{{base_url}}/comments'
+  query_params:
+    postId: 1
+  headers:
+    Content-Type: application/json
+  save_as: res
+  assert:
+  - source: status
+    operator: ==
+    expected: 200
+  - source: res
+    aggregate: count
+    operator: ==
+    expected: 5
