@@ -46,6 +46,8 @@ public sealed class TestCaseExecutor(StepRunner runner)
             {
                 Name = testCase.Name,
                 SourceFile = testCase.SourceFile,
+                FileName = testCase.FileName,
+                TestId = testCase.Id,
                 Steps =
                 [
                     new StepExecutionResult
@@ -78,6 +80,8 @@ public sealed class TestCaseExecutor(StepRunner runner)
         {
             Name = testCase.Name,
             SourceFile = testCase.SourceFile,
+            FileName = testCase.FileName,
+            TestId = testCase.Id,
             Steps = stepResults,
             StartedAt = startedAt,
             CompletedAt = DateTimeOffset.UtcNow,

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { MethodBadge } from './Badge.jsx';
 import EmptyState from './EmptyState.jsx';
 import Icon from './Icons.jsx';
+import { allFolders, folderOf } from '../testTree.js';
 
 function formatDuration(ms) {
   if (ms == null || Number.isNaN(ms)) return '';
@@ -202,6 +203,15 @@ export default function RunReport({
     () =>
       new Set((report?.tests || []).flatMap((test, i) => (test.outcome === 'passed' ? [] : [i]))),
   );
+  // Folder groups that are closed; a group where everything passed starts closed.
+  const [closedGroups, setClosedGroups] = useState(() => {
+    const tests = report?.tests || [];
+    return new Set(
+      [...new Set(tests.map((test) => folderOf(test.fileName)))].filter((folder) =>
+        tests.every((test) => folderOf(test.fileName) !== folder || test.outcome === 'passed'),
+      ),
+    );
+  });
 
   if (running) {
     return <RunProgress t={t} progress={progress} cancelRun={cancelRun} />;
@@ -270,12 +280,34 @@ export default function RunReport({
     else headline = fill(t.failedAndErrors);
   }
   if (report.cancelled) headline = t.runCancelled;
+  // Results are grouped by folder when the run covered more than one; top-level tests come last.
+  const folders = [...allFolders(report.tests), ''].filter((folder) =>
+    report.tests.some((test) => folderOf(test.fileName) === folder),
+  );
+  const grouped = folders.length > 1;
+  const toggleGroup = (folder) =>
+    setClosedGroups((current) => {
+      const next = new Set(current);
+      if (next.has(folder)) next.delete(folder);
+      else next.add(folder);
+      return next;
+    });
+  const rowsOf = (items) =>
+    items.map(({ test, index }) => (
+      <TestRow
+        key={index}
+        t={t}
+        test={test}
+        open={expanded.has(index)}
+        toggle={() => toggle(index)}
+      />
+    ));
   const notes = [
     report.cancelled &&
       t.runCancelledSub
         .replace('{done}', report.cancelled.done)
         .replace('{total}', report.cancelled.total),
-    report.scope && t.ranSubset.replace('{count}', report.scope.length),
+    report.scope && t.ranSubset.replace('{count}', report.total),
   ].filter(Boolean);
 
   return (
@@ -370,19 +402,48 @@ export default function RunReport({
       </div>
 
       <div className="result-list">
-        {visible.length ? (
-          visible.map(({ test, index }) => (
-            <TestRow
-              key={index}
-              t={t}
-              test={test}
-              open={expanded.has(index)}
-              toggle={() => toggle(index)}
-            />
-          ))
-        ) : (
-          <p className="muted">{report.total ? t.noMatches : t.emptyOutput}</p>
-        )}
+        {!visible.length && <p className="muted">{report.total ? t.noMatches : t.emptyOutput}</p>}
+        {visible.length > 0 && !grouped && rowsOf(visible)}
+        {visible.length > 0 &&
+          grouped &&
+          folders.map((folder) => {
+            const inFolder = visible.filter(({ test }) => folderOf(test.fileName) === folder);
+            if (!inFolder.length) return null;
+            const all = report.tests.filter((test) => folderOf(test.fileName) === folder);
+            const count = (outcome) => all.filter((test) => test.outcome === outcome).length;
+            const open = !closedGroups.has(folder);
+            return (
+              <section key={folder || '(top)'} className="result-group">
+                <button
+                  type="button"
+                  className="result-group-head"
+                  aria-expanded={open}
+                  onClick={() => toggleGroup(folder)}
+                >
+                  <Icon name={open ? 'chevronDown' : 'chevronRight'} size={13} />
+                  <Icon name="folder" size={14} />
+                  <span className="mono">{folder || t.topLevel}</span>
+                  <span className="spacer" />
+                  {count('passed') > 0 && (
+                    <span className="chip chip-good">
+                      {count('passed')} {t.passed}
+                    </span>
+                  )}
+                  {count('failed') > 0 && (
+                    <span className="chip chip-bad">
+                      {count('failed')} {t.failed}
+                    </span>
+                  )}
+                  {count('error') > 0 && (
+                    <span className="chip chip-warn">
+                      {count('error')} {t.errorsShort}
+                    </span>
+                  )}
+                </button>
+                {open && <div className="result-group-body">{rowsOf(inFolder)}</div>}
+              </section>
+            );
+          })}
       </div>
 
       <section className="raw-panel">

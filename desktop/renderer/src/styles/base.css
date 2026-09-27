@@ -1308,3 +1308,121 @@ pre {
   color: var(--fg-muted);
   background: var(--canvas-inset);
 }
+
+/* ---------- Folders of tests ---------- */
+
+.sidebar-section .segmented {
+  margin-left: auto;
+}
+.sidebar-section .segmented + .btn-icon {
+  margin-left: 0;
+}
+.segmented.compact {
+  padding: 1px;
+}
+.segmented.compact button {
+  min-width: 22px;
+  height: 20px;
+  padding: 0 5px;
+}
+.tree-folder {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 5px 10px 5px 8px;
+  border: none;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--fg-muted);
+  font-size: 13px;
+  font-weight: 550;
+  text-align: left;
+  cursor: pointer;
+}
+.tree-folder:hover {
+  background: var(--canvas-inset);
+}
+.tree-folder:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.tree-count {
+  margin-left: auto;
+  color: var(--fg-subtle);
+  font-size: 11px;
+  font-weight: 500;
+}
+.tree-item[draggable='true'] {
+  cursor: grab;
+}
+/* Where a dragged test would land. */
+.drop-target {
+  background: var(--accent-subtle) !important;
+  outline: 1px dashed var(--accent);
+  outline-offset: -1px;
+  border-radius: var(--radius);
+}
+.list-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.group-run {
+  margin-left: 2px;
+  opacity: 0;
+}
+.group-label:hover .group-run,
+.group-run:focus-visible {
+  opacity: 1;
+}
+.folder-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  color: var(--fg-subtle);
+}
+.folder-line .form-control {
+  width: 260px;
+}
+.folder-line .field-hint {
+  flex-basis: 100%;
+  margin: 0;
+}
+
+/* ---------- Dialog ---------- */
+
+.dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgba(15, 18, 22, 0.45);
+}
+.dialog {
+  width: min(460px, 100%);
+  padding: 18px 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--canvas);
+  box-shadow: var(--shadow-md);
+}
+.dialog h3 {
+  margin: 0 0 12px;
+  font-size: 15px;
+  font-weight: 650;
+}
+.dialog .field-hint.warn {
+  margin-top: 8px;
+}
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}

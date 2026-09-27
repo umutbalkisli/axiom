@@ -14,6 +14,8 @@ import {
   toYamlSteps,
   translations,
 } from './i18n.js';
+import { allFolders, folderOf, isInFolder, statusKey } from './testTree.js';
+import PromptDialog from './components/PromptDialog.jsx';
 
 const api = window.axiomApi;
 const RECENT_KEY = 'axiom-recent';
@@ -109,6 +111,14 @@ export default function App() {
   const [progress, setProgress] = useState(null);
   const [toast, setToast] = useState(null);
   const [recent, setRecent] = useState(readRecent);
+  // The one open dialog, if any (move to folder, rename folder).
+  const [dialog, setDialog] = useState(null);
+  // Group tests by 'folder' or 'endpoint' in the sidebar and the test list.
+  const [grouping, setGrouping] = useState(
+    () => localStorage.getItem('axiom-grouping') || 'folder',
+  );
+  // The latest outcome of every test that has run, by statusKey; a run of some tests updates only theirs.
+  const [statuses, setStatuses] = useState({});
   const toastTimer = useRef(null);
 
   const notify = useCallback((text, tone = 'success') => {
@@ -133,6 +143,9 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('axiom-environment', environment);
   }, [environment]);
+  useEffect(() => {
+    localStorage.setItem('axiom-grouping', grouping);
+  }, [grouping]);
   useEffect(() => {
     localStorage.setItem('axiom-theme', theme);
     const media = window.matchMedia('(prefers-color-scheme: dark)');
@@ -185,6 +198,8 @@ export default function App() {
       setHasCollection(withCollection);
       setActiveFile(null);
       setReport(null);
+      setStatuses({});
+      setStatuses({});
       setCollectionTab('tests');
       setView('collection');
       if (withCollection) {
@@ -332,8 +347,9 @@ export default function App() {
     setSavedTest(JSON.stringify(loaded));
     setView('builder');
   };
-  const newTest = () => {
-    const fresh = emptyTest();
+  // A new test, created in `inFolder` when given (a folder path; the builder lets the user change it).
+  const newTest = (inFolder) => {
+    const fresh = { ...emptyTest(), folder: typeof inFolder === 'string' ? inFolder : '' };
     setEditKind('test');
     setActiveFile(null);
     setBuilderKey((key) => key + 1);
@@ -366,8 +382,10 @@ export default function App() {
     try {
       const result = await api.saveTestCase({
         folderPath: folder,
-        // Editing an existing file keeps (or follows) its name; a new test gets a unique name from the host.
+        // Editing an existing file keeps (or follows) its name; a new test gets a unique name from the host,
+        // in the folder chosen in the builder.
         fileName: activeFile,
+        folder: activeFile ? null : test.folder || '',
         name: test.name,
         description: test.description,
         method: test.method,
@@ -444,10 +462,88 @@ export default function App() {
       { id: 'run', label: t.runTest, enabled: !running },
       { separator: true },
       { id: 'clone', label: t.cloneTest },
+      { id: 'move', label: t.moveToFolder },
     ]);
     if (choice === 'open') guarded(() => openTest(fileName))();
     if (choice === 'run') run([fileName]);
     if (choice === 'clone') guarded(() => cloneTest(fileName))();
+    if (choice === 'move') askMoveTest(fileName);
+  };
+  // Right-click menu of a folder.
+  const folderMenu = async (path) => {
+    const choice = await api.showContextMenu([
+      { id: 'new', label: t.newTestHere },
+      { id: 'run', label: t.runFolder, enabled: !running },
+      { separator: true },
+      { id: 'rename', label: t.renameFolder },
+      { id: 'delete', label: t.deleteFolder },
+    ]);
+    if (choice === 'new') guarded(() => newTest(path))();
+    if (choice === 'run') run([`${path}/`]);
+    if (choice === 'rename') askRenameFolder(path);
+    if (choice === 'delete') deleteFolder(path);
+  };
+
+  // Moves a test to another folder. The host moves the file as it is and never overwrites: a name
+  // that is taken there gets the next free one.
+  const moveTest = async (fileName, targetFolder) => {
+    if (folderOf(fileName) === targetFolder) return;
+    const result = await api.moveTest({ folderPath: folder, fileName, folder: targetFolder });
+    if (activeFile === fileName) setActiveFile(result.fileName);
+    await refreshTests();
+    notify(t.moved.replace('{path}', result.fileName));
+  };
+  const dropTest = (fileName, targetFolder) =>
+    moveTest(fileName, targetFolder).catch((error) => notify(error.message, 'danger'));
+  const askMoveTest = (fileName) =>
+    setDialog({
+      title: t.moveToFolder,
+      label: t.folderLabel,
+      hint: t.folderHint,
+      initialValue: folderOf(fileName),
+      suggestions: allFolders(tests),
+      confirmLabel: t.move,
+      submit: (value) => moveTest(fileName, value),
+    });
+  const askRenameFolder = (path) =>
+    setDialog({
+      title: t.renameFolder,
+      label: t.folderLabel,
+      hint: t.renameFolderHint,
+      initialValue: path,
+      suggestions: [],
+      confirmLabel: t.rename,
+      submit: async (value) => {
+        const result = await api.renameFolder({
+          folderPath: folder,
+          folder: path,
+          newFolder: value,
+        });
+        if (activeFile && isInFolder(activeFile, path)) {
+          setActiveFile(`${result.folder}/${activeFile.slice(path.length + 1)}`);
+        }
+        await refreshTests();
+        notify(t.folderRenamed.replace('{path}', result.folder));
+      },
+    });
+  const deleteFolder = async (path) => {
+    const count = tests.filter((item) => isInFolder(item.fileName, path)).length;
+    if (!window.confirm(t.deleteFolderConfirm.replace('{count}', count).replace('{path}', path)))
+      return;
+    try {
+      await api.deleteFolder({ folderPath: folder, folder: path });
+    } catch (error) {
+      window.alert(error.message);
+      return;
+    }
+    if (activeFile && isInFolder(activeFile, path) && view === 'builder') {
+      setActiveFile(null);
+      setTest(emptyTest());
+      setSavedTest(JSON.stringify(emptyTest()));
+      setView('collection');
+    }
+    await refreshTests();
+    notify(t.deleted);
   };
 
   const environments = useMemo(() => environmentNames(collection.secrets), [collection.secrets]);
@@ -531,13 +627,24 @@ export default function App() {
         steps: toYamlSteps(test.steps),
       },
     });
+  useEffect(() => {
+    if (!report?.tests) return;
+    setStatuses((current) => {
+      const next = { ...current };
+      report.tests.forEach((item) => {
+        next[statusKey(item)] = { passed: 'pass', error: 'error' }[item.outcome] || 'fail';
+      });
+      return next;
+    });
+  }, [report]);
+  // Keyed by path too, so lists can look a test up either way.
   const runStatus = useMemo(() => {
-    const map = {};
-    (report?.tests || []).forEach((item) => {
-      map[item.fileName] = { passed: 'pass', error: 'error' }[item.outcome] || 'fail';
+    const map = { ...statuses };
+    tests.forEach((item) => {
+      if (statuses[statusKey(item)]) map[item.fileName] = statuses[statusKey(item)];
     });
     return map;
-  }, [report]);
+  }, [statuses, tests]);
 
   const saveSettings = async () => {
     try {
@@ -653,7 +760,11 @@ export default function App() {
         closeCollection={guarded(closeCollection)}
         openTest={(fileName) => guarded(() => openTest(fileName))()}
         testMenu={testMenu}
-        newTest={guarded(newTest)}
+        folderMenu={folderMenu}
+        dropTest={dropTest}
+        grouping={grouping}
+        setGrouping={setGrouping}
+        newTest={guarded(() => newTest())}
         goToCollection={goToCollection}
         goToRun={guarded(() => setView('run'))}
       />
@@ -736,9 +847,13 @@ export default function App() {
               runStatus={runStatus}
               openTest={openTest}
               runTest={(fileName) => run([fileName])}
+              runFolder={(path) => run([`${path}/`])}
               testMenu={testMenu}
+              folderMenu={folderMenu}
+              grouping={grouping}
+              setGrouping={setGrouping}
               running={running}
-              newTest={newTest}
+              newTest={() => newTest()}
               shared={shared}
               openShared={openShared}
               newShared={newShared}
@@ -767,6 +882,7 @@ export default function App() {
               }
               running={running}
               previewStep={previewStep}
+              folders={allFolders(tests)}
               back={backFromBuilder}
               kind={editKind}
               sharedList={shared}
@@ -802,6 +918,7 @@ export default function App() {
           )}
         </main>
       </div>
+      {dialog && <PromptDialog t={t} {...dialog} close={() => setDialog(null)} />}
       {toast && (
         <div className={`toast ${toast.tone}`} role="status">
           <Icon name={toast.tone === 'danger' ? 'xCircle' : 'checkCircle'} size={16} />

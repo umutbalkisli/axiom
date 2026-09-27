@@ -3,6 +3,8 @@ import { groupByEndpoint, toVariableName } from '../i18n.js';
 import { MethodBadge, splitEndpointLabel } from './Badge.jsx';
 import EmptyState from './EmptyState.jsx';
 import Icon from './Icons.jsx';
+import { GroupingToggle } from './Sidebar.jsx';
+import { groupByFolder } from '../testTree.js';
 
 // Rebuilds the map in place so renaming a key keeps the row's position.
 function renameEntry(map, oldKey, newKey, value) {
@@ -45,12 +47,15 @@ function TestsTab({
   runStatus,
   openTest,
   runTest,
+  runFolder,
   testMenu,
+  folderMenu,
+  grouping,
+  setGrouping,
   running,
   newTest,
   openImport,
 }) {
-  const groups = groupByEndpoint(tests, t);
   if (!tests.length) {
     return (
       <EmptyState
@@ -70,54 +75,104 @@ function TestsTab({
       />
     );
   }
+
+  const row = (item) => (
+    <div
+      className="list-row-line"
+      key={item.fileName}
+      onContextMenu={(event) => {
+        event.preventDefault();
+        testMenu(item.fileName);
+      }}
+    >
+      <button type="button" className="list-row" onClick={() => openTest(item.fileName)}>
+        <span className={`run-dot ${runStatus[item.fileName] || ''}`} />
+        <span className="list-row-main">
+          <span className="list-row-title">{item.name}</span>
+          <span className="mono muted">{item.fileName}</span>
+        </span>
+        <Icon name="chevronRight" size={14} />
+      </button>
+      <button
+        type="button"
+        className="btn-icon list-row-run"
+        title={t.runTest}
+        aria-label={`${t.runTest}: ${item.name}`}
+        disabled={running}
+        onClick={() => runTest(item.fileName)}
+      >
+        <Icon name="play" size={13} />
+      </button>
+    </div>
+  );
+
+  // In folder view every folder is a section (subfolders follow their parent); only folders that
+  // hold tests directly get a list, but every folder can be run as a whole.
+  const sections =
+    grouping === 'folder'
+      ? groupByFolder(tests).map((group) => ({
+          key: group.folder || '(top)',
+          folder: group.folder,
+          label: (
+            <>
+              <Icon name="folder" size={14} />
+              <span className="mono">{group.folder || t.topLevel}</span>
+              {group.folder && <span className="count-pill">{group.total}</span>}
+            </>
+          ),
+          items: group.items,
+        }))
+      : groupByEndpoint(tests, t).map((group) => {
+          const { method, path } = splitEndpointLabel(group.label);
+          return {
+            key: group.label,
+            folder: null,
+            label: (
+              <>
+                {method ? <MethodBadge method={method} /> : null}
+                <span className="mono">{path}</span>
+              </>
+            ),
+            items: group.items,
+          };
+        });
+
   return (
     <div className="stack">
-      {groups.map((group) => {
-        const { method, path } = splitEndpointLabel(group.label);
-        return (
-          <section key={group.label}>
-            <div className="group-label">
-              {method ? <MethodBadge method={method} /> : null}
-              <span className="mono">{path}</span>
-            </div>
-            <div className="list-card">
-              {group.items.map((item) => (
-                <div
-                  className="list-row-line"
-                  key={item.fileName}
-                  onContextMenu={(event) => {
+      <div className="list-toolbar">
+        <span className="muted small">{t.groupBy}</span>
+        <GroupingToggle t={t} grouping={grouping} setGrouping={setGrouping} />
+      </div>
+      {sections.map((section) => (
+        <section key={section.key}>
+          <div
+            className="group-label"
+            onContextMenu={
+              section.folder
+                ? (event) => {
                     event.preventDefault();
-                    testMenu(item.fileName);
-                  }}
-                >
-                  <button
-                    type="button"
-                    className="list-row"
-                    onClick={() => openTest(item.fileName)}
-                  >
-                    <span className={`run-dot ${runStatus[item.fileName] || ''}`} />
-                    <span className="list-row-main">
-                      <span className="list-row-title">{item.name}</span>
-                      <span className="mono muted">{item.fileName}</span>
-                    </span>
-                    <Icon name="chevronRight" size={14} />
-                  </button>
-                  <button
-                    type="button"
-                    className="btn-icon list-row-run"
-                    title={t.runTest}
-                    aria-label={`${t.runTest}: ${item.name}`}
-                    disabled={running}
-                    onClick={() => runTest(item.fileName)}
-                  >
-                    <Icon name="play" size={13} />
-                  </button>
-                </div>
-              ))}
-            </div>
-          </section>
-        );
-      })}
+                    folderMenu(section.folder);
+                  }
+                : undefined
+            }
+          >
+            {section.label}
+            {section.folder && (
+              <button
+                type="button"
+                className="btn-icon group-run"
+                title={t.runFolder}
+                aria-label={`${t.runFolder}: ${section.folder}`}
+                disabled={running}
+                onClick={() => runFolder(section.folder)}
+              >
+                <Icon name="play" size={12} />
+              </button>
+            )}
+          </div>
+          {section.items.length > 0 && <div className="list-card">{section.items.map(row)}</div>}
+        </section>
+      ))}
     </div>
   );
 }
@@ -572,7 +627,11 @@ export default function Collection({
   runStatus,
   openTest,
   runTest,
+  runFolder,
   testMenu,
+  folderMenu,
+  grouping,
+  setGrouping,
   running,
   newTest,
   shared,
@@ -629,7 +688,11 @@ export default function Collection({
             runStatus={runStatus}
             openTest={openTest}
             runTest={runTest}
+            runFolder={runFolder}
             testMenu={testMenu}
+            folderMenu={folderMenu}
+            grouping={grouping}
+            setGrouping={setGrouping}
             running={running}
             newTest={newTest}
             openImport={openImport}

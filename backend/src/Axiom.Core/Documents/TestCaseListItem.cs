@@ -6,13 +6,22 @@ namespace Axiom.Documents;
 public sealed class TestCaseListItem
 {
     /// <summary>
-    /// File name including the suffix.
+    /// Path relative to the tests folder, including the suffix (<c>orders/create-order.test.yaml</c>).
+    /// This is how the test is addressed everywhere.
     /// </summary>
     public required string FileName { get; init; }
     /// <summary>
-    /// File name without the suffix.
+    /// <see cref="FileName"/> without the suffix (<c>orders/create-order</c>).
     /// </summary>
     public required string Id { get; init; }
+    /// <summary>
+    /// The folder the test is in, relative to the tests folder; empty at the top level.
+    /// </summary>
+    public string Folder { get; init; } = string.Empty;
+    /// <summary>
+    /// The test's stable <c>id:</c>; null for a test written before ids existed.
+    /// </summary>
+    public string? TestId { get; init; }
     /// <summary>
     /// Display name of the test.
     /// </summary>

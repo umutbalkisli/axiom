@@ -20,10 +20,187 @@ public class CollectionManagementServiceTests
     private static SaveSharedStepsRequest Shared(string name, string? fileName = null, params StepDocument[] steps) =>
         new() { Name = name, FileName = fileName, Steps = steps.Length > 0 ? steps.ToList() : [new StepDocument { Id = "s", Type = "request", Method = "GET", Url = "x" }] };
 
+    // ---- folders ----
+
+    [Fact]
+    public void Tests_in_folders_are_listed_with_their_relative_path_folder_and_id()
+    {
+        using var folder = new TempFolder();
+        folder.Write("tests/top.test.yaml", "id: aaaaaaaaaaaaaaaa\nname: Top\nsteps: []\n");
+        folder.Write("tests/orders/create.test.yaml", "name: Create\nsteps: []\n");
+        folder.Write("tests/orders/refunds/create.test.yaml", "name: Refund\nsteps: []\n");
+
+        var tests = Service.ListTests(folder.Path);
+
+        Assert.Equal(["orders/create.test.yaml", "orders/refunds/create.test.yaml", "top.test.yaml"], tests.Select(t => t.FileName));
+        Assert.Equal(["orders", "orders/refunds", ""], tests.Select(t => t.Folder));
+        Assert.Equal("orders/refunds/create", tests[1].Id);
+        Assert.Equal("aaaaaaaaaaaaaaaa", tests[2].TestId);
+        Assert.Null(tests[0].TestId);
+        Assert.Equal("Refund", Service.GetTest(folder.Path, "orders/refunds/create.test.yaml")!.Name);
+    }
+
+    [Fact]
+    public void A_new_test_is_created_in_its_folder_with_an_id_that_saving_keeps()
+    {
+        using var folder = new TempFolder();
+
+        var created = Service.SaveTest(folder.Path, new SaveTestCaseRequest { Name = "Create order", Folder = "Orders API/Happy path" });
+        var id = Service.GetTest(folder.Path, created.FileName)!.Id;
+        var renamed = Service.SaveTest(folder.Path, new SaveTestCaseRequest { Name = "Create big order", FileName = created.FileName, Folder = "elsewhere" });
+
+        Assert.Equal("orders-api/happy-path/create-order.test.yaml", created.FileName);     // new folders follow the naming rules
+        Assert.Matches("^[0-9a-f]{16}$", id);
+        Assert.Equal("orders-api/happy-path/create-big-order.test.yaml", renamed.FileName); // stays in its folder; Folder is only for new tests
+        Assert.Equal(id, Service.GetTest(folder.Path, renamed.FileName)!.Id);             // the id survives the rename
+    }
+
+    [Fact]
+    public void A_test_written_before_ids_existed_gets_one_when_saved()
+    {
+        using var folder = new TempFolder();
+        folder.Write("tests/old.test.yaml", "name: Old\nsteps: []\n");
+
+        Service.SaveTest(folder.Path, new SaveTestCaseRequest { Name = "Old", FileName = "old.test.yaml" });
+
+        Assert.Matches("^[0-9a-f]{16}$", Service.GetTest(folder.Path, "old")!.Id);
+    }
+
+    [Fact]
+    public void The_same_file_name_can_exist_in_different_folders()
+    {
+        using var folder = new TempFolder();
+
+        var a = Service.SaveTest(folder.Path, new SaveTestCaseRequest { Name = "Create", Folder = "orders" });
+        var b = Service.SaveTest(folder.Path, new SaveTestCaseRequest { Name = "Create", Folder = "users" });
+
+        Assert.Equal("orders/create.test.yaml", a.FileName);
+        Assert.Equal("users/create.test.yaml", b.FileName);
+    }
+
+    [Fact]
+    public void Moving_a_test_moves_the_file_unchanged_and_never_overwrites()
+    {
+        using var folder = new TempFolder();
+        const string content = "# keep me\nid: 1111111111111111\nname: Create\nsteps: []   # odd spacing kept\n";
+        folder.Write("tests/orders/create.test.yaml", content);
+        folder.Write("tests/archive/create.test.yaml", "name: Someone else's\nsteps: []\n");
+
+        var moved = Service.MoveTest(folder.Path, "orders/create.test.yaml", "archive");
+
+        Assert.Equal("archive/create-2.test.yaml", moved);                                  // name taken there: next free one
+        Assert.Equal(content, folder.Read("tests/archive/create-2.test.yaml"));             // moved, not re-saved
+        Assert.Equal("name: Someone else's\nsteps: []\n", folder.Read("tests/archive/create.test.yaml"));
+        Assert.False(Directory.Exists(Path.Combine(folder.Path, "tests", "orders")));      // the emptied folder is gone
+        Assert.Equal("create-2.test.yaml", Service.MoveTest(folder.Path, "archive/create-2", ""));   // to the top level
+        Assert.Equal("create-2.test.yaml", Service.MoveTest(folder.Path, "create-2", null));         // already there: nothing to do
+        Assert.Throws<ArgumentException>(() => Service.MoveTest(folder.Path, "missing", "x"));
+        Assert.Throws<ArgumentException>(() => Service.MoveTest(folder.Path, "create-2", "../outside"));
+    }
+
+    [Fact]
+    public void A_folder_that_holds_other_files_is_not_removed_when_its_last_test_leaves()
+    {
+        using var folder = new TempFolder();
+        folder.Write("tests/orders/create.test.yaml", "name: C\nsteps: []\n");
+        folder.Write("tests/orders/README.md", "notes");
+
+        Service.MoveTest(folder.Path, "orders/create", "");
+
+        Assert.True(folder.Exists("tests/orders/README.md"));
+    }
+
+    [Fact]
+    public void Renaming_a_folder_moves_its_tests_and_refuses_to_merge_into_an_existing_one()
+    {
+        using var folder = new TempFolder();
+        folder.Write("tests/orders/create.test.yaml", "name: C\nsteps: []\n");
+        folder.Write("tests/orders/refunds/full.test.yaml", "name: F\nsteps: []\n");
+        folder.Write("tests/users/create.test.yaml", "name: U\nsteps: []\n");
+
+        Assert.Throws<ArgumentException>(() => Service.RenameFolder(folder.Path, "orders", "users"));     // would merge
+        Assert.Throws<ArgumentException>(() => Service.RenameFolder(folder.Path, "orders", "orders/inner")); // into itself
+        Assert.Throws<ArgumentException>(() => Service.RenameFolder(folder.Path, "orders", "a/b/c"));      // refunds would be 4 deep
+        Assert.Equal(["orders/create.test.yaml", "orders/refunds/full.test.yaml", "users/create.test.yaml"],
+            Service.ListTests(folder.Path).Select(t => t.FileName));                                        // nothing changed
+
+        var renamed = Service.RenameFolder(folder.Path, "orders", "Shop/Orders");
+
+        Assert.Equal("shop/orders", renamed);
+        Assert.Equal(["shop/orders/create.test.yaml", "shop/orders/refunds/full.test.yaml", "users/create.test.yaml"],
+            Service.ListTests(folder.Path).Select(t => t.FileName));
+    }
+
+    [Fact]
+    public void Deleting_a_folder_deletes_its_tests_but_keeps_other_files()
+    {
+        using var folder = new TempFolder();
+        folder.Write("tests/orders/a.test.yaml", "name: A\nsteps: []\n");
+        folder.Write("tests/orders/sub/b.test.yaml", "name: B\nsteps: []\n");
+        folder.Write("tests/orders/notes.txt", "keep");
+        folder.Write("tests/keep.test.yaml", "name: K\nsteps: []\n");
+
+        var deleted = Service.DeleteFolder(folder.Path, "orders");
+
+        Assert.Equal(2, deleted);
+        Assert.Equal(["keep.test.yaml"], Service.ListTests(folder.Path).Select(t => t.FileName));
+        Assert.True(folder.Exists("tests/orders/notes.txt"));
+        Assert.False(Directory.Exists(Path.Combine(folder.Path, "tests", "orders", "sub")));
+        Assert.Throws<ArgumentException>(() => Service.DeleteFolder(folder.Path, ""));
+    }
+
+    [Fact]
+    public void A_shared_group_used_by_a_test_in_a_folder_cannot_be_deleted()
+    {
+        using var folder = new TempFolder();
+        folder.Write("shared/login.shared.yaml", "name: Login\nsteps: []\n");
+        folder.Write("tests/orders/a.test.yaml", "name: A\nsteps:\n- { id: i, type: include, ref: login }\n");
+
+        var error = Assert.Throws<InvalidOperationException>(() => Service.DeleteShared(folder.Path, "login"));
+
+        Assert.Contains("tests/orders/a.test.yaml", error.Message);
+    }
+
+    // ---- no overwrite, ever ----
+
+    [Fact]
+    public void Creating_and_moving_files_take_the_next_free_name_instead_of_overwriting()
+    {
+        using var folder = new TempFolder();
+        var directory = Path.Combine(folder.Path, "d");
+        folder.Write("d/a.test.yaml", "first");
+        folder.Write("d/A-2.test.yaml", "other case");                       // taken in any letter case
+        folder.Write("src.test.yaml", "moving");
+
+        var created = SafeFiles.CreateUnique(directory, "a", ".test.yaml", "new");
+        var moved = SafeFiles.MoveUnique(Path.Combine(folder.Path, "src.test.yaml"), directory, "a", ".test.yaml");
+
+        Assert.Equal("a-3.test.yaml", created);
+        Assert.Equal("a-4.test.yaml", moved);
+        Assert.Equal("first", folder.Read("d/a.test.yaml"));
+        Assert.Equal("other case", folder.Read("d/A-2.test.yaml"));
+        Assert.Equal("moving", folder.Read("d/a-4.test.yaml"));
+    }
+
+    [Fact]
+    public void A_change_of_letter_case_only_renames_the_same_file()
+    {
+        using var folder = new TempFolder();
+        var directory = Path.Combine(folder.Path, "d");
+        var source = folder.Write("d/Get-User.test.yaml", "content");
+
+        var renamed = SafeFiles.MoveUnique(source, directory, "get-user", ".test.yaml");
+
+        Assert.Equal("get-user.test.yaml", renamed);
+        Assert.Equal(["get-user.test.yaml"], Directory.GetFiles(directory).Select(Path.GetFileName));
+        Assert.Equal("content", folder.Read("d/get-user.test.yaml"));
+    }
+
     // ---- cloning ----
 
     private const string Original = """
         # Checks the happy path; keep in sync with the API docs.
+        id: 0123456789abcdef
         name: Get user
         description: reads one user
         endpoint: /users/{id}
@@ -47,8 +224,13 @@ public class CollectionManagementServiceTests
 
         var (_, fileName) = Service.CloneTest(folder.Path, "get-user.test.yaml", "Get user (copy)");
 
+        var cloneId = Service.GetTest(folder.Path, fileName)!.Id;
         Assert.Equal("get-user-copy.test.yaml", fileName);
-        Assert.Equal(Original.Replace("name: Get user\n", "name: Get user (copy)\n"), folder.Read("tests/get-user-copy.test.yaml"));
+        Assert.Matches("^[0-9a-f]{16}$", cloneId);
+        Assert.NotEqual("0123456789abcdef", cloneId);                                          // a copy is a new test
+        Assert.Equal(
+            Original.Replace("name: Get user\n", "name: Get user (copy)\n").Replace("id: 0123456789abcdef\n", $"id: {cloneId}\n"),
+            folder.Read("tests/get-user-copy.test.yaml"));
         Assert.Equal(Original, folder.Read("tests/get-user.test.yaml"));                     // the original is untouched
         Assert.Equal(["Get user", "Get user (copy)"], new YamlCollectionLoader().Load(folder.Path).TestCases.Select(t => t.Name).Order());
     }
@@ -78,7 +260,7 @@ public class CollectionManagementServiceTests
         var folded = Service.CloneTest(folder.Path, "folded", "Short");
         var nameless = Service.CloneTest(folder.Path, "nameless", "Named");
 
-        Assert.Equal("name: Short\nsteps: []\n", folder.Read($"tests/{folded.FileName}"));
+        Assert.Matches("^id: [0-9a-f]{16}\nname: Short\nsteps: \\[\\]\n$", folder.Read($"tests/{folded.FileName}"));
         Assert.Equal("Named", Service.GetTest(folder.Path, nameless.FileName)!.Name);
         Assert.Empty(Service.GetTest(folder.Path, nameless.FileName)!.Steps);
     }
@@ -193,7 +375,10 @@ public class CollectionManagementServiceTests
 
     [Theory]
     [InlineData("../evil")]
-    [InlineData("a/b")]
+    [InlineData("a/../../evil")]
+    [InlineData("/etc/passwd")]
+    [InlineData("a/b/c/d/too-deep")]
+    [InlineData("con")]
     public void Unsafe_file_names_are_rejected(string fileName)
     {
         using var folder = new TempFolder();

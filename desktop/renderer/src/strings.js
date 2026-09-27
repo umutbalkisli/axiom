@@ -266,6 +266,25 @@ export const strings = {
       'This body is not valid JSON ({error}), so it is sent as text/plain. In JSON, keys and text need double quotes: {"title": "foo"}.',
     bodyNotJsonDeclared:
       'This body is not valid JSON ({error}), but the Content-Type header says JSON, so the server will probably reject it. In JSON, keys and text need double quotes: {"title": "foo"}.',
+    moveToFolder: 'Move to folder…',
+    newTestHere: 'New test here',
+    runFolder: 'Run folder',
+    renameFolder: 'Rename folder…',
+    deleteFolder: 'Delete folder…',
+    move: 'Move',
+    rename: 'Rename',
+    moved: 'Moved to {path}',
+    folderRenamed: 'Folder renamed to {path}',
+    folderLabel: 'Folder',
+    folderHint:
+      'A folder inside tests/, e.g. orders or orders/refunds (up to 3 deep). Empty is the top level. New folders are named like files: lowercase with dashes.',
+    renameFolderHint:
+      'Its tests move along. If a folder with that name already exists, nothing is merged or overwritten: move tests into it one by one instead.',
+    deleteFolderConfirm: 'Delete the {count} tests in {path}? Other files in the folder are kept.',
+    topLevel: 'Top level',
+    groupBy: 'Group by',
+    groupByFolder: 'Group by folder',
+    groupByEndpoint: 'Group by endpoint',
     cloneTest: 'Clone',
     cloneTestHint: 'Make a copy of this test to use as a starting point for a variation',
     cloned: 'Test cloned',
@@ -538,6 +557,26 @@ export const strings = {
       'Bu gövde geçerli bir JSON değil ({error}); bu yüzden text/plain olarak gönderilir. JSON’da anahtarlar ve metinler çift tırnak içinde olmalıdır: {"title": "foo"}.',
     bodyNotJsonDeclared:
       'Bu gövde geçerli bir JSON değil ({error}), ancak Content-Type başlığı JSON diyor; sunucu büyük olasılıkla reddedecektir. JSON’da anahtarlar ve metinler çift tırnak içinde olmalıdır: {"title": "foo"}.',
+    moveToFolder: 'Klasöre taşı…',
+    newTestHere: 'Buraya yeni test',
+    runFolder: 'Klasörü çalıştır',
+    renameFolder: 'Klasörü yeniden adlandır…',
+    deleteFolder: 'Klasörü sil…',
+    move: 'Taşı',
+    rename: 'Yeniden adlandır',
+    moved: '{path} konumuna taşındı',
+    folderRenamed: 'Klasörün yeni adı: {path}',
+    folderLabel: 'Klasör',
+    folderHint:
+      'tests/ içinde bir klasör, ör. orders veya orders/refunds (en fazla 3 seviye). Boş bırakılırsa en üst seviye. Yeni klasörler dosyalar gibi adlandırılır: küçük harf ve tire.',
+    renameFolderHint:
+      'Testleri de birlikte taşınır. Bu adda bir klasör zaten varsa hiçbir şey birleştirilmez veya üzerine yazılmaz; testleri tek tek taşıyın.',
+    deleteFolderConfirm:
+      '{path} içindeki {count} test silinsin mi? Klasördeki diğer dosyalar korunur.',
+    topLevel: 'En üst seviye',
+    groupBy: 'Grupla',
+    groupByFolder: 'Klasöre göre grupla',
+    groupByEndpoint: 'Uç noktaya göre grupla',
     cloneTest: 'Kopyala',
     cloneTestHint:
       'Bu testin bir kopyasını oluşturur; bir varyasyon için başlangıç noktası olarak kullanın',

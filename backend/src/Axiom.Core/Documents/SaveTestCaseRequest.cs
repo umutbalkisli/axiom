@@ -14,6 +14,12 @@ public sealed class SaveTestCaseRequest
     /// Preferred base for the file name of a new test (defaults to the test name).
     /// </summary>
     public string? FileNameHint { get; set; }
+
+    /// <summary>
+    /// The folder, relative to the tests folder, that a new test is created in; empty or null for the top level.
+    /// Ignored when updating an existing test (moving is a separate operation).
+    /// </summary>
+    public string? Folder { get; set; }
     /// <summary>
     /// Display name of the test.
     /// </summary>

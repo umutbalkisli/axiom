@@ -6,6 +6,10 @@ namespace Axiom.Documents;
 public sealed class TestCaseDocument
 {
     /// <summary>
+    /// The test's stable identity; see <see cref="Axiom.Models.TestCaseDefinition.Id"/>.
+    /// </summary>
+    public string? Id { get; set; }
+    /// <summary>
     /// Display name of the test.
     /// </summary>
     public string Name { get; set; } = string.Empty;

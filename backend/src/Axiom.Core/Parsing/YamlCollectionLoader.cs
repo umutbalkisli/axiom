@@ -18,8 +18,8 @@ public sealed class YamlCollectionLoader
     public LoadedCollection Load(string folderPath) => Load(folderPath, testFilter: null);
 
     /// <summary>
-    /// Loads the collection in <paramref name="folderPath"/>, with only the test files whose file name (e.g.
-    /// <c>get-user.test.yaml</c>) passes <paramref name="testFilter"/>; the others are not even parsed, so a broken
+    /// Loads the collection in <paramref name="folderPath"/>, with only the test files whose path relative to the tests
+    /// folder (e.g. <c>orders/get-user.test.yaml</c>) passes <paramref name="testFilter"/>; the others are not even parsed, so a broken
     /// file elsewhere does not stop the tests that were picked. Throws when the collection is missing or invalid.
     /// </summary>
     public LoadedCollection Load(string folderPath, Func<string, bool>? testFilter)
@@ -38,6 +38,7 @@ public sealed class YamlCollectionLoader
         var shared = LoadShared(root);
         var tests = LoadTests(root, testFilter);
         EnsureIncludesExist(tests, shared);
+        EnsureUniqueIds(tests);
 
         return new LoadedCollection
         {
@@ -56,6 +57,7 @@ public sealed class YamlCollectionLoader
     {
         var test = Deserialize<TestCaseDefinition>(yaml, sourceName);
         NormalizeTest(test, sourceName);
+        test.FileName = sourceName;
         EnsureValidVariableNames(test.Variables.Keys.Concat(SavedNames(test.Steps)), sourceName);
         return test;
     }
@@ -69,12 +71,15 @@ public sealed class YamlCollectionLoader
         }
 
         return Directory.EnumerateFiles(testsPath, CollectionPaths.TestFilePattern, SearchOption.AllDirectories)
-                        .Where(path => testFilter is null || testFilter(Path.GetFileName(path)))
-                        .OrderBy(x => x, StringComparer.OrdinalIgnoreCase)
-                        .Select(path =>
+                        .Select(path => (Path: path, Relative: TestPaths.RelativePath(root, path)))
+                        .Where(file => testFilter is null || testFilter(file.Relative))
+                        .OrderBy(file => file.Relative, StringComparer.OrdinalIgnoreCase)
+                        .Select(file =>
                         {
+                            var path = file.Path;
                             var test = DeserializeFile<TestCaseDefinition>(path);
                             NormalizeTest(test, path);
+                            test.FileName = file.Relative;
                             EnsureValidVariableNames(
                                 test.Variables.Keys.Concat(SavedNames(test.Steps)),
                                 path);
@@ -122,6 +127,23 @@ public sealed class YamlCollectionLoader
                     throw new InvalidOperationException($"{file}: include step '{include.Id}' refers to shared steps '{include.Ref}', which do not exist.");
                 }
             }
+        }
+    }
+
+    /// <summary>
+    /// A test's <c>id:</c> is its identity, so two files may not share one (typically a file copied by hand).
+    /// </summary>
+    private static void EnsureUniqueIds(IEnumerable<TestCaseDefinition> tests)
+    {
+        var duplicate = tests
+            .Where(t => !string.IsNullOrWhiteSpace(t.Id))
+            .GroupBy(t => t.Id!.Trim(), StringComparer.Ordinal)
+            .FirstOrDefault(group => group.Count() > 1);
+        if (duplicate is not null)
+        {
+            throw new InvalidOperationException(
+                $"Tests {string.Join(" and ", duplicate.Select(t => t.FileName))} have the same id '{duplicate.Key}'. "
+                + "An id identifies one test: remove the id line from the copy (a new one is given when it is saved), or use Clone to copy a test.");
         }
     }
 

@@ -384,13 +384,17 @@ export function yamlPreview(test, t) {
 export function buildReport(result, tests) {
   const byFile = new Map(tests.map((test) => [test.fileName, test]));
   const cases = (result.testCases || []).map((testCase) => {
-    const fileName = String(testCase.sourceFile || '')
-      .split(/[\\/]/)
-      .pop();
+    // The path relative to the tests folder (orders/create.test.yaml); older hosts only sent the full path.
+    const fileName =
+      testCase.fileName ||
+      String(testCase.sourceFile || '')
+        .split(/[\\/]/)
+        .pop();
     const known = byFile.get(fileName) || {};
     return {
       name: testCase.name,
       fileName,
+      testId: testCase.testId || null,
       method: known.method,
       endpoint: known.endpoint,
       outcome: outcomeOf(testCase.outcome, testCase.passed),

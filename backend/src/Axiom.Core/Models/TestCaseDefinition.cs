@@ -8,6 +8,11 @@ namespace Axiom.Models;
 public sealed class TestCaseDefinition
 {
     /// <summary>
+    /// The test's stable identity (<c>id:</c>): given once when the test is created and never changed, so it survives
+    /// renames and moves. Null for a test written before ids existed.
+    /// </summary>
+    public string? Id { get; set; }
+    /// <summary>
     /// Display name of the test.
     /// </summary>
     public string Name { get; set; } = string.Empty;
@@ -36,4 +41,9 @@ public sealed class TestCaseDefinition
     /// </summary>
     [YamlIgnore]
     public string SourceFile { get; set; } = string.Empty;
+    /// <summary>
+    /// Where the test lives, relative to the tests folder (<c>orders/create-order.test.yaml</c>).
+    /// </summary>
+    [YamlIgnore]
+    public string FileName { get; set; } = string.Empty;
 }

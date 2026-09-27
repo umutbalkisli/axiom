@@ -622,6 +622,7 @@ export default function Builder({
   cloneTest,
   running,
   previewStep,
+  folders = [],
 }) {
   const isShared = kind === 'shared';
   // A group cannot include itself; every other group can be included.
@@ -809,6 +810,26 @@ export default function Builder({
             </div>
             <p className="field-hint">{t.endpointHint}</p>
           </>
+        )}
+        {!isShared && isNew && (
+          <div className="folder-line">
+            <Icon name="folder" size={14} />
+            <input
+              className="form-control font-monospace"
+              value={test.folder || ''}
+              placeholder={t.topLevel}
+              aria-label={t.folderLabel}
+              list="builder-folders"
+              spellCheck={false}
+              onChange={(event) => setTest({ ...test, folder: event.target.value })}
+            />
+            <datalist id="builder-folders">
+              {folders.map((item) => (
+                <option key={item} value={item} />
+              ))}
+            </datalist>
+            <span className="field-hint">{t.folderHint}</span>
+          </div>
         )}
         <p className="field-hint file-hint" title={isShared ? t.sharedFileHint : t.fileHint}>
           <Icon name="code" size={12} />

@@ -110,6 +110,8 @@ public sealed class CollectionRunner(YamlCollectionLoader loader, IServiceScopeF
             Variables = test.Variables,
             Steps = test.Steps.Take(throughStep + 1).ToList(),
             SourceFile = test.SourceFile,
+            FileName = test.FileName,
+            Id = test.Id,
         };
         var (result, variables) = await testExecutor.ExecuteWithVariablesAsync(
             loaded.Collection, partial, secrets, new SharedStepsLibrary(loaded.SharedSteps), cancellationToken);
@@ -129,6 +131,10 @@ public sealed class CollectionRunner(YamlCollectionLoader loader, IServiceScopeF
             .ResolveAsync(collection.Secrets, options.Environment, cancellationToken);
     }
 
+    /// <summary>
+    /// Which test files to load: by relative path (<c>orders/create.test.yaml</c>) or id (<c>orders/create</c>), or a
+    /// whole folder with a trailing slash (<c>orders/</c>, including its subfolders).
+    /// </summary>
     private static Func<string, bool>? TestFilter(IReadOnlyCollection<string>? tests)
     {
         if (tests is null || tests.Count == 0)
@@ -136,11 +142,12 @@ public sealed class CollectionRunner(YamlCollectionLoader loader, IServiceScopeF
             return null;
         }
 
-        var fileNames = tests
-            .Where(name => !string.IsNullOrWhiteSpace(name))
-            .Select(name => CollectionPaths.ToTestFileName(name.Trim()))
+        var picked = tests.Where(name => !string.IsNullOrWhiteSpace(name)).Select(name => name.Trim().Replace('\\', '/')).ToList();
+        var folders = picked.Where(name => name.EndsWith('/')).Select(name => name.TrimEnd('/')).ToList();
+        var files = picked.Where(name => !name.EndsWith('/'))
+            .Select(TestPaths.Normalize)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
-        return fileNames.Contains;
+        return relative => files.Contains(relative) || folders.Any(folder => TestPaths.IsInFolder(relative, folder));
     }
 
     /// <summary>

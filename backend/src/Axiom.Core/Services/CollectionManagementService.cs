@@ -3,6 +3,7 @@ using Axiom.Models;
 using Axiom.Parsing;
 using Axiom.Runtime;
 using Axiom.Serialization;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Text.Json;
@@ -71,7 +72,7 @@ public sealed partial class CollectionManagementService
     }
 
     /// <summary>
-    /// Lists the tests in the tests folder.
+    /// Lists the tests in the tests folder and its subfolders, each with its path relative to the tests folder.
     /// </summary>
     public IReadOnlyList<TestCaseListItem> ListTests(string folderPath)
     {
@@ -82,20 +83,23 @@ public sealed partial class CollectionManagementService
         }
 
         return Directory
-            .EnumerateFiles(testsDir, CollectionPaths.TestFilePattern, SearchOption.TopDirectoryOnly)
-            .OrderBy(x => x, StringComparer.OrdinalIgnoreCase)
-            .Select(path =>
+            .EnumerateFiles(testsDir, CollectionPaths.TestFilePattern, SearchOption.AllDirectories)
+            .Select(path => (Path: path, Relative: TestPaths.RelativePath(folderPath, path)))
+            .OrderBy(file => file.Relative, StringComparer.OrdinalIgnoreCase)
+            .Select(file =>
             {
-                var fileName = Path.GetFileName(path);
-                var test = DeserializeFile<TestCaseDocument>(path);
-                var id = CollectionPaths.ToTestId(fileName);
+                var test = DeserializeFile<TestCaseDocument>(file.Path);
+                var id = CollectionPaths.ToTestId(file.Relative);
+                var firstRequest = test?.Steps.FirstOrDefault(x => string.Equals(x.Type, RequestStepExecutor.StepType, StringComparison.OrdinalIgnoreCase));
                 return new TestCaseListItem
                 {
-                    FileName = fileName,
+                    FileName = file.Relative,
                     Id = id,
-                    Name = string.IsNullOrWhiteSpace(test?.Name) ? ToDisplayName(id) : test.Name,
-                    Endpoint = test?.Endpoint ?? test?.Steps.FirstOrDefault(x => string.Equals(x.Type, RequestStepExecutor.StepType, StringComparison.OrdinalIgnoreCase))?.Url,
-                    Method = test?.Method ?? test?.Steps.FirstOrDefault(x => string.Equals(x.Type, RequestStepExecutor.StepType, StringComparison.OrdinalIgnoreCase))?.Method,
+                    Folder = TestPaths.FolderOf(file.Relative),
+                    TestId = string.IsNullOrWhiteSpace(test?.Id) ? null : test.Id.Trim(),
+                    Name = string.IsNullOrWhiteSpace(test?.Name) ? ToDisplayName(TestPaths.FileNameOf(id)) : test.Name,
+                    Endpoint = test?.Endpoint ?? firstRequest?.Url,
+                    Method = test?.Method ?? firstRequest?.Method,
                 };
             })
             .ToList();
@@ -130,8 +134,23 @@ public sealed partial class CollectionManagementService
     /// (and renamed to follow a changed test name, unless its name was customised). Otherwise a new file is
     /// created with a unique, name-derived file name; an existing test is never overwritten by accident.
     /// </summary>
-    public (string FilePath, string FileName) SaveTest(string folderPath, SaveTestCaseRequest request) =>
-        SaveNamed(folderPath, CollectionPaths.Tests, request.FileName, request.FileNameHint, request.Name, ToDocument(request), followName: true);
+    public (string FilePath, string FileName) SaveTest(string folderPath, SaveTestCaseRequest request)
+    {
+        var document = ToDocument(request);
+        var relative = string.IsNullOrWhiteSpace(request.FileName) ? null : TestPaths.Normalize(request.FileName);
+        var existingPath = relative is null ? null : CollectionPaths.TestFile(folderPath, relative);
+        var updating = existingPath is not null && File.Exists(existingPath);
+
+        // The id is the test's identity: kept when updating (given now to a test written before ids existed), new otherwise.
+        document.Id = updating
+            ? DeserializeFile<NamedDocument>(existingPath!)?.Id?.Trim() is { Length: > 0 } kept ? kept : NewTestId()
+            : NewTestId();
+
+        var folder = relative is not null ? TestPaths.FolderOf(relative) : TestPaths.FolderForNewName(folderPath, request.Folder);
+        var directory = TestPaths.FullPath(folderPath, folder, isFolder: true);
+        var fileName = SaveInDirectory(directory, CollectionPaths.TestFileSuffix, relative is null ? null : TestPaths.FileNameOf(relative), request.FileNameHint, request.Name, document, followName: true);
+        return (Path.Combine(directory, fileName), TestPaths.Combine(folder, fileName));
+    }
 
     /// <summary>
     /// The YAML a test would be saved as. Lets an unsaved test be run exactly as it will run once saved.
@@ -238,11 +257,11 @@ public sealed partial class CollectionManagementService
         var testsDirectory = CollectionPaths.TestsDirectory(folderPath);
         if (Directory.Exists(testsDirectory))
         {
-            foreach (var path in Directory.EnumerateFiles(testsDirectory, CollectionPaths.TestFilePattern, SearchOption.TopDirectoryOnly))
+            foreach (var path in Directory.EnumerateFiles(testsDirectory, CollectionPaths.TestFilePattern, SearchOption.AllDirectories))
             {
                 if (Includes(DeserializeFile<TestCaseDocument>(path)?.Steps ?? []))
                 {
-                    users.Add($"tests/{Path.GetFileName(path)}");
+                    users.Add($"tests/{TestPaths.RelativePath(folderPath, path)}");
                 }
             }
         }
@@ -316,75 +335,66 @@ public sealed partial class CollectionManagementService
     }
 
     /// <summary>
-    /// Writes a document to a file of the given kind. An existing <paramref name="requestedFile"/> is updated in place
-    /// (or renamed to follow <paramref name="name"/> when <paramref name="followName"/> and the name was generated);
-    /// otherwise a new file with a unique name is created.
+    /// Writes a shared step group. An existing <paramref name="requestedFile"/> is updated in place; otherwise a new
+    /// file with a unique name is created. Nothing is ever overwritten.
     /// </summary>
-    private (string FilePath, string FileName) SaveNamed(string folderPath, FileKind kind, string? requestedFile, string? hint, string name, object document, bool followName)
+    private static (string FilePath, string FileName) SaveNamed(string folderPath, FileKind kind, string? requestedFile, string? hint, string name, object document, bool followName)
     {
-        Directory.CreateDirectory(CollectionPaths.Directory(folderPath, kind));
-
-        var currentName = string.IsNullOrWhiteSpace(requestedFile)
-            ? null
-            : CollectionPaths.ToFileName(kind, requestedFile.Trim());
-        var currentPath = currentName is null ? null : CollectionPaths.File(folderPath, kind, currentName);
-        var updating = currentPath is not null && File.Exists(currentPath);
-
-        var targetName = updating
-            ? (followName ? ResolveNameForUpdate(folderPath, kind, currentName!, currentPath!, name) : currentName!)
-            : UniqueFileName(folderPath, kind, hint ?? (currentName is null ? name : CollectionPaths.ToId(kind, currentName)), excluding: null);
-        var targetPath = CollectionPaths.File(folderPath, kind, targetName);
-
-        SerializeFile(targetPath, document);
-        if (updating && !string.Equals(targetName, currentName, StringComparison.OrdinalIgnoreCase))
+        var directory = CollectionPaths.Directory(folderPath, kind);
+        var currentName = string.IsNullOrWhiteSpace(requestedFile) ? null : CollectionPaths.ToFileName(kind, requestedFile.Trim());
+        if (currentName is not null)
         {
-            File.Delete(currentPath!);
+            // Validates the name (no path separators) before anything is written.
+            CollectionPaths.File(folderPath, kind, currentName);
         }
 
-        return (targetPath, targetName);
+        var fileName = SaveInDirectory(directory, kind.Suffix, currentName, hint, name, document, followName);
+        return (Path.Combine(directory, fileName), fileName);
     }
 
     /// <summary>
-    /// Keeps the file name in step with the name, but only if the file still has the name Axiom gave it.
+    /// Writes <paramref name="document"/> into <paramref name="directory"/> and returns its file name. An existing
+    /// <paramref name="currentName"/> is written in place first and then, with <paramref name="followName"/>, renamed to
+    /// follow a changed <paramref name="name"/> (only while its file name is still the one Axiom generated). A new file
+    /// gets a unique name. The file system refuses any overwrite (see <see cref="SafeFiles"/>).
     /// </summary>
-    private static string ResolveNameForUpdate(string folderPath, FileKind kind, string currentName, string currentPath, string newName)
+    private static string SaveInDirectory(string directory, string suffix, string? currentName, string? hint, string name, object document, bool followName)
     {
-        var oldName = DeserializeFile<NamedDocument>(currentPath)?.Name;
-        var currentId = CollectionPaths.ToId(kind, currentName);
-        var followsName = TestFileNames.IsGeneratedFrom(currentId, oldName);
-        var alreadyMatches = TestFileNames.IsGeneratedFrom(currentId, newName);
-        return followsName && !alreadyMatches
-            ? UniqueFileName(folderPath, kind, newName, excluding: currentPath)
-            : currentName;
-    }
-
-    private static string UniqueFileName(string folderPath, FileKind kind, string source, string? excluding)
-    {
-        var slug = TestFileNames.Slug(source);
-        var candidate = slug;
-        for (var number = 2; IsTaken(folderPath, kind, candidate, excluding); number++)
+        var currentPath = currentName is null ? null : Path.Combine(directory, currentName);
+        if (currentPath is not null && File.Exists(currentPath))
         {
-            candidate = $"{slug}-{number}";
+            var currentId = currentName![..^suffix.Length];
+            var oldName = DeserializeFile<NamedDocument>(currentPath)?.Name;
+            var rename = followName
+                && TestFileNames.IsGeneratedFrom(currentId, oldName)
+                && !TestFileNames.IsGeneratedFrom(currentId, name);
+
+            // Content first, in place: if the rename below fails, the edit is still saved under the old name.
+            SerializeFile(currentPath, document);
+            return rename ? SafeFiles.MoveUnique(currentPath, directory, TestFileNames.Slug(name), suffix) : currentName;
         }
 
-        return CollectionPaths.ToFileName(kind, candidate);
-    }
-
-    private static bool IsTaken(string folderPath, FileKind kind, string id, string? excluding)
-    {
-        var path = CollectionPaths.File(folderPath, kind, id);
-        return File.Exists(path) && !string.Equals(path, excluding, StringComparison.OrdinalIgnoreCase);
+        var source = hint ?? (currentName is null ? name : currentName[..^suffix.Length]);
+        return SafeFiles.CreateUnique(directory, TestFileNames.Slug(source), suffix, YamlSerialization.Serializer.Serialize(document));
     }
 
     private sealed class NamedDocument
     {
+        public string? Id { get; set; }
+
         public string? Name { get; set; }
     }
 
     /// <summary>
-    /// Copies a test to a new file named after <paramref name="name"/>, as a starting point for a variation. The file
-    /// is copied as it is and only its top-level <c>name:</c> changes, so comments, formatting and keys the editor
-    /// does not know survive. Throws <see cref="ArgumentException"/> when the test does not exist or the name is empty.
+    /// A new stable test id: 16 random hex characters, e.g. <c>3f9c2a7be41d06f5</c>.
+    /// </summary>
+    public static string NewTestId() => RandomNumberGenerator.GetHexString(16, lowercase: true);
+
+    /// <summary>
+    /// Copies a test, in the same folder, to a new file named after <paramref name="name"/>, as a starting point for a
+    /// variation. The file is copied as it is: only its top-level <c>name:</c> changes and it gets a new <c>id:</c>, so
+    /// comments, formatting and keys the editor does not know survive. Returns the copy's relative path. Throws
+    /// <see cref="ArgumentException"/> when the test does not exist or the name is empty.
     /// </summary>
     public (string FilePath, string FileName) CloneTest(string folderPath, string fileName, string name)
     {
@@ -393,38 +403,159 @@ public sealed partial class CollectionManagementService
             throw new ArgumentException("A name is required.", nameof(name));
         }
 
-        var sourcePath = CollectionPaths.TestFile(folderPath, fileName);
+        var relative = TestPaths.Normalize(fileName);
+        var sourcePath = CollectionPaths.TestFile(folderPath, relative);
         if (!File.Exists(sourcePath))
         {
-            throw new ArgumentException($"Test '{fileName}' does not exist.", nameof(fileName));
+            throw new ArgumentException($"Test '{relative}' does not exist.", nameof(fileName));
         }
 
-        var targetName = UniqueFileName(folderPath, CollectionPaths.Tests, name.Trim(), excluding: null);
-        var targetPath = CollectionPaths.File(folderPath, CollectionPaths.Tests, targetName);
-        File.WriteAllText(targetPath, WithName(File.ReadAllText(sourcePath), name.Trim()));
-        return (targetPath, targetName);
+        var folder = TestPaths.FolderOf(relative);
+        var content = WithTopLevel(WithTopLevel(File.ReadAllText(sourcePath), "name", name.Trim()), "id", NewTestId());
+        var directory = Path.GetDirectoryName(sourcePath)!;
+        var created = SafeFiles.CreateUnique(directory, TestFileNames.Slug(name), CollectionPaths.TestFileSuffix, content);
+        return (Path.Combine(directory, created), TestPaths.Combine(folder, created));
     }
 
     /// <summary>
-    /// The YAML text with its top-level <c>name:</c> set to <paramref name="name"/>, leaving every other line untouched.
+    /// Moves a test into <paramref name="targetFolder"/> (relative to the tests folder; empty for the top level) and
+    /// returns its new relative path. The file itself is not rewritten, only moved; it keeps its file name unless that
+    /// name is taken in the target folder, in which case the next free one is used. A folder left empty is removed.
     /// </summary>
-    private static string WithName(string yaml, string name)
+    public string MoveTest(string folderPath, string fileName, string? targetFolder)
     {
-        var line = "name: " + YamlSerialization.Serializer.Serialize(name).TrimEnd();
-        var existing = TopLevelName().Match(yaml);
+        var relative = TestPaths.Normalize(fileName);
+        var sourcePath = CollectionPaths.TestFile(folderPath, relative);
+        if (!File.Exists(sourcePath))
+        {
+            throw new ArgumentException($"Test '{relative}' does not exist.", nameof(fileName));
+        }
+
+        var folder = TestPaths.FolderForNewName(folderPath, targetFolder);
+        if (string.Equals(folder, TestPaths.FolderOf(relative), StringComparison.Ordinal))
+        {
+            return relative;
+        }
+
+        var moved = SafeFiles.MoveUnique(
+            sourcePath,
+            TestPaths.FullPath(folderPath, folder, isFolder: true),
+            CollectionPaths.ToTestId(TestPaths.FileNameOf(relative)),
+            CollectionPaths.TestFileSuffix);
+        SafeFiles.RemoveEmptyFolders(Path.GetDirectoryName(sourcePath)!, CollectionPaths.TestsDirectory(folderPath));
+        return TestPaths.Combine(folder, moved);
+    }
+
+    /// <summary>
+    /// Renames (or moves) a folder of tests and returns its new relative path. Refuses when a folder of that name
+    /// already exists, rather than merging two folders' files; changing only letter case works.
+    /// </summary>
+    public string RenameFolder(string folderPath, string folder, string newFolder)
+    {
+        var from = TestPaths.NormalizeFolder(folder);
+        var sourceDirectory = TestPaths.FullPath(folderPath, from, isFolder: true);
+        if (from.Length == 0 || !Directory.Exists(sourceDirectory))
+        {
+            throw new ArgumentException($"Folder '{folder}' does not exist.", nameof(folder));
+        }
+
+        var to = TestPaths.FolderForNewName(folderPath, newFolder);
+        if (to.Length == 0)
+        {
+            throw new ArgumentException("A folder name is required.", nameof(newFolder));
+        }
+
+        if (string.Equals(from, to, StringComparison.Ordinal))
+        {
+            return to;
+        }
+
+        var caseOnly = string.Equals(from, to, StringComparison.OrdinalIgnoreCase);
+        if (!caseOnly && TestPaths.IsInFolder(to, from))
+        {
+            throw new ArgumentException("A folder cannot be moved into itself.", nameof(newFolder));
+        }
+
+        // Every test must still be within the nesting limit at its new place.
+        foreach (var file in Directory.EnumerateFiles(sourceDirectory, CollectionPaths.TestFilePattern, SearchOption.AllDirectories))
+        {
+            var inside = Path.GetRelativePath(sourceDirectory, file).Replace(Path.DirectorySeparatorChar, '/');
+            TestPaths.Normalize($"{to}/{inside}");
+        }
+
+        var targetDirectory = TestPaths.FullPath(folderPath, to, isFolder: true);
+        var targetParent = Path.GetDirectoryName(targetDirectory)!;
+        if (caseOnly)
+        {
+            var temporary = Path.Combine(Path.GetDirectoryName(sourceDirectory)!, $".{Guid.NewGuid():N}.moving");
+            Directory.Move(sourceDirectory, temporary);
+            Directory.Move(temporary, targetDirectory);
+            return to;
+        }
+
+        if (SafeFiles.ExistsIgnoringCase(targetParent, Path.GetFileName(targetDirectory)))
+        {
+            throw new ArgumentException($"A folder named '{to}' already exists. Move the tests into it one by one instead, so that no file is overwritten.", nameof(newFolder));
+        }
+
+        Directory.CreateDirectory(targetParent);
+        Directory.Move(sourceDirectory, targetDirectory);          // throws rather than overwrite if it appeared meanwhile
+        SafeFiles.RemoveEmptyFolders(Path.GetDirectoryName(sourceDirectory)!, CollectionPaths.TestsDirectory(folderPath));
+        return to;
+    }
+
+    /// <summary>
+    /// Deletes every test in a folder (and its subfolders) and returns how many were deleted. Other files in the
+    /// folder are kept, and so are the folders that still hold them.
+    /// </summary>
+    public int DeleteFolder(string folderPath, string folder)
+    {
+        var from = TestPaths.NormalizeFolder(folder);
+        if (from.Length == 0)
+        {
+            throw new ArgumentException("The top level of the tests folder cannot be deleted.", nameof(folder));
+        }
+
+        var directory = TestPaths.FullPath(folderPath, from, isFolder: true);
+        if (!Directory.Exists(directory))
+        {
+            return 0;
+        }
+
+        var tests = Directory.EnumerateFiles(directory, CollectionPaths.TestFilePattern, SearchOption.AllDirectories).ToList();
+        foreach (var test in tests)
+        {
+            File.Delete(test);
+        }
+
+        foreach (var subfolder in Directory.EnumerateDirectories(directory, "*", SearchOption.AllDirectories).OrderByDescending(d => d.Length))
+        {
+            if (!Directory.EnumerateFileSystemEntries(subfolder).Any())
+            {
+                Directory.Delete(subfolder);
+            }
+        }
+
+        SafeFiles.RemoveEmptyFolders(directory, CollectionPaths.TestsDirectory(folderPath));
+        return tests.Count;
+    }
+
+    /// <summary>
+    /// The YAML text with the top-level <paramref name="key"/> set to <paramref name="value"/> (added at the top when
+    /// missing), leaving every other line untouched.
+    /// </summary>
+    private static string WithTopLevel(string yaml, string key, string value)
+    {
+        var line = $"{key}: " + YamlSerialization.Serializer.Serialize(value).TrimEnd();
+        // The key with its value, including continuation lines of a multi-line value.
+        var existing = Regex.Match(yaml, $@"^{Regex.Escape(key)}:[^\r\n]*(?:\r?\n[ \t]+[^\r\n]*)*", RegexOptions.Multiline);
         return existing.Success
             ? yaml[..existing.Index] + line + yaml[(existing.Index + existing.Length)..]
             : line + Environment.NewLine + yaml;
     }
 
     /// <summary>
-    /// A top-level <c>name:</c> key with its value, including continuation lines of a multi-line value.
-    /// </summary>
-    [GeneratedRegex(@"^name:[^\r\n]*(?:\r?\n[ \t]+[^\r\n]*)*", RegexOptions.Multiline)]
-    private static partial Regex TopLevelName();
-
-    /// <summary>
-    /// Deletes a test file; does nothing when it does not exist.
+    /// Deletes a test file; does nothing when it does not exist. A folder left empty is removed.
     /// </summary>
     public void DeleteTest(string folderPath, string fileName)
     {
@@ -432,6 +563,7 @@ public sealed partial class CollectionManagementService
         if (File.Exists(path))
         {
             File.Delete(path);
+            SafeFiles.RemoveEmptyFolders(Path.GetDirectoryName(path)!, CollectionPaths.TestsDirectory(folderPath));
         }
     }
 

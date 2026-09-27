@@ -14,6 +14,14 @@ public sealed class TestCaseExecutionResult
     /// </summary>
     public required string SourceFile { get; init; }
     /// <summary>
+    /// Where the test lives, relative to the tests folder (<c>orders/create-order.test.yaml</c>).
+    /// </summary>
+    public string FileName { get; init; } = string.Empty;
+    /// <summary>
+    /// The test's stable <c>id:</c>, when it has one.
+    /// </summary>
+    public string? TestId { get; init; }
+    /// <summary>
     /// The results of the steps that ran; a run stops at the first step that does not pass.
     /// </summary>
     public required IReadOnlyList<StepExecutionResult> Steps { get; init; }

@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { groupByEndpoint } from '../i18n.js';
+import { groupByFolder, isInFolder } from '../testTree.js';
 import { MethodBadge, splitEndpointLabel } from './Badge.jsx';
 import Icon from './Icons.jsx';
 
@@ -22,6 +23,32 @@ function Segmented({ value, onChange, options, label }) {
   );
 }
 
+// Switches the test list between folders and endpoints.
+export function GroupingToggle({ t, grouping, setGrouping }) {
+  return (
+    <div className="segmented compact" role="group" aria-label={t.groupBy}>
+      {[
+        ['folder', 'folder', t.groupByFolder],
+        ['endpoint', 'globe', t.groupByEndpoint],
+      ].map(([value, icon, title]) => (
+        <button
+          key={value}
+          type="button"
+          className={grouping === value ? 'active' : ''}
+          title={title}
+          aria-label={title}
+          aria-pressed={grouping === value}
+          onClick={() => setGrouping(value)}
+        >
+          <Icon name={icon} size={13} />
+        </button>
+      ))}
+    </div>
+  );
+}
+
+const TEST_DRAG_TYPE = 'application/x-axiom-test';
+
 export default function Sidebar({
   t,
   language,
@@ -41,6 +68,10 @@ export default function Sidebar({
   closeCollection,
   openTest,
   testMenu,
+  folderMenu,
+  dropTest,
+  grouping,
+  setGrouping,
   newTest,
   goToCollection,
   goToRun,
@@ -55,7 +86,79 @@ export default function Sidebar({
         .some((value) => String(value).toLowerCase().includes(needle)),
     );
   }, [tests, query]);
-  const groups = useMemo(() => groupByEndpoint(filtered, t), [filtered, t]);
+  const endpointGroups = useMemo(() => groupByEndpoint(filtered, t), [filtered, t]);
+  const folderGroups = useMemo(() => groupByFolder(filtered), [filtered]);
+  const searching = query.trim().length > 0;
+  const [collapsed, setCollapsed] = useState(() => new Set());
+  // The folder a dragged test is over ('' is the top level), to highlight it.
+  const [dropTarget, setDropTarget] = useState(null);
+
+  const toggleFolder = (path) =>
+    setCollapsed((current) => {
+      const next = new Set(current);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
+      return next;
+    });
+  // A folder is hidden while one of its parents is collapsed (never while searching).
+  const hiddenByParent = (path) =>
+    !searching && [...collapsed].some((parent) => parent !== path && isInFolder(path, parent));
+  // Makes an element a place to drop a dragged test into `path`.
+  const dropProps = (path) => ({
+    onDragOver: (event) => {
+      if (!event.dataTransfer.types.includes(TEST_DRAG_TYPE)) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = 'move';
+      setDropTarget(path);
+    },
+    onDragLeave: () => setDropTarget((current) => (current === path ? null : current)),
+    onDrop: (event) => {
+      const fileName = event.dataTransfer.getData(TEST_DRAG_TYPE);
+      setDropTarget(null);
+      if (!fileName) return;
+      event.preventDefault();
+      dropTest(fileName, path);
+    },
+  });
+
+  // A test row (a render function, not a component, so rows keep their focus across updates).
+  const testItem = (item, indent, draggable = false) => {
+    const status = runStatus[item.fileName];
+    return (
+      <button
+        key={item.fileName}
+        type="button"
+        className={`tree-item ${activeFile === item.fileName && view === 'builder' ? 'active' : ''}`}
+        style={indent ? { paddingLeft: 8 + indent * 12 } : undefined}
+        title={item.fileName}
+        draggable={draggable}
+        onDragStart={(event) => {
+          event.dataTransfer.setData(TEST_DRAG_TYPE, item.fileName);
+          event.dataTransfer.effectAllowed = 'move';
+        }}
+        onDragEnd={() => setDropTarget(null)}
+        onClick={() => openTest(item.fileName)}
+        onContextMenu={(event) => {
+          event.preventDefault();
+          testMenu(item.fileName);
+        }}
+      >
+        <span
+          className={`run-dot ${status || ''}`}
+          title={
+            status === 'pass'
+              ? t.passed
+              : status === 'fail'
+                ? t.failed
+                : status === 'error'
+                  ? t.couldNotEvaluate
+                  : t.notRun
+          }
+        />
+        <span className="tree-item-name">{item.name}</span>
+      </button>
+    );
+  };
 
   return (
     <aside className="sidebar" aria-label="Application navigation">
@@ -121,9 +224,13 @@ export default function Sidebar({
 
       {hasCollection && (
         <>
-          <div className="sidebar-section">
+          <div
+            className={`sidebar-section ${dropTarget === '' ? 'drop-target' : ''}`}
+            {...dropProps('')}
+          >
             <span>{t.cases}</span>
             <span className="count-pill">{tests.length}</span>
+            <GroupingToggle t={t} grouping={grouping} setGrouping={setGrouping} />
             <button
               type="button"
               className="btn-icon"
@@ -145,8 +252,43 @@ export default function Sidebar({
             </label>
           )}
           <div className="test-tree">
-            {groups.length ? (
-              groups.map((group) => {
+            {!filtered.length && (
+              <p className="sidebar-empty">{tests.length ? t.noMatches : t.empty}</p>
+            )}
+            {filtered.length > 0 &&
+              grouping === 'folder' &&
+              folderGroups.map((group) => {
+                if (group.folder && hiddenByParent(group.folder)) return null;
+                const open = searching || !collapsed.has(group.folder);
+                return (
+                  <div key={group.folder || '(top)'} className="tree-group">
+                    {group.folder && (
+                      <button
+                        type="button"
+                        className={`tree-folder ${dropTarget === group.folder ? 'drop-target' : ''}`}
+                        style={{ paddingLeft: 8 + (group.depth - 1) * 12 }}
+                        aria-expanded={open}
+                        title={group.folder}
+                        onClick={() => toggleFolder(group.folder)}
+                        onContextMenu={(event) => {
+                          event.preventDefault();
+                          folderMenu(group.folder);
+                        }}
+                        {...dropProps(group.folder)}
+                      >
+                        <Icon name={open ? 'chevronDown' : 'chevronRight'} size={12} />
+                        <Icon name="folder" size={14} />
+                        <span className="tree-item-name">{group.name}</span>
+                        <span className="tree-count">{group.total}</span>
+                      </button>
+                    )}
+                    {open && group.items.map((item) => testItem(item, group.depth, true))}
+                  </div>
+                );
+              })}
+            {filtered.length > 0 &&
+              grouping === 'endpoint' &&
+              endpointGroups.map((group) => {
                 const { method, path } = splitEndpointLabel(group.label);
                 return (
                   <div key={group.label} className="tree-group">
@@ -156,40 +298,10 @@ export default function Sidebar({
                         {path}
                       </span>
                     </div>
-                    {group.items.map((item) => (
-                      <button
-                        type="button"
-                        key={item.fileName}
-                        className={`tree-item ${
-                          activeFile === item.fileName && view === 'builder' ? 'active' : ''
-                        }`}
-                        onClick={() => openTest(item.fileName)}
-                        onContextMenu={(event) => {
-                          event.preventDefault();
-                          testMenu(item.fileName);
-                        }}
-                      >
-                        <span
-                          className={`run-dot ${runStatus[item.fileName] || ''}`}
-                          title={
-                            runStatus[item.fileName] === 'pass'
-                              ? t.passed
-                              : runStatus[item.fileName] === 'fail'
-                                ? t.failed
-                                : runStatus[item.fileName] === 'error'
-                                  ? t.couldNotEvaluate
-                                  : t.notRun
-                          }
-                        />
-                        <span className="tree-item-name">{item.name}</span>
-                      </button>
-                    ))}
+                    {group.items.map((item) => testItem(item, 0))}
                   </div>
                 );
-              })
-            ) : (
-              <p className="sidebar-empty">{tests.length ? t.noMatches : t.empty}</p>
-            )}
+              })}
           </div>
         </>
       )}

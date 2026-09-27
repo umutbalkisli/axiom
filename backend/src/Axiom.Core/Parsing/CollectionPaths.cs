@@ -94,9 +94,10 @@ public static class CollectionPaths
     public static string TestsDirectory(string folderPath) => Directory(folderPath, Tests);
 
     /// <summary>
-    /// Resolves a test file; rejects names that would escape the tests folder.
+    /// Resolves a test file from its path relative to the tests folder (<c>orders/create-order.test.yaml</c>, or its
+    /// id <c>orders/create-order</c>); rejects paths that would escape the tests folder.
     /// </summary>
-    public static string TestFile(string folderPath, string fileName) => File(folderPath, Tests, fileName);
+    public static string TestFile(string folderPath, string relativePath) => TestPaths.FullPath(folderPath, relativePath);
 
     /// <summary>
     /// Returns the test file name for an id, adding the suffix when it is missing.

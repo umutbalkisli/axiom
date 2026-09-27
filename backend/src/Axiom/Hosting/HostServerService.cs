@@ -97,19 +97,23 @@ internal static class HostServerService
         app.MapGet("/api/tests", (string folderPath, CollectionManagementService manager) =>
             Results.Ok(new { tests = manager.ListTests(folderPath) }));
 
-        app.MapGet("/api/tests/{fileName}", GetTest);
+        // A test is addressed by its path relative to the tests folder, which may contain '/' (orders/create.test.yaml).
+        app.MapGet("/api/tests/{**fileName}", GetTest);
         app.MapGet("/api/assertions/aggregations", (IEnumerable<IAssertionAggregation> aggregations) =>
             Results.Ok(new { aggregations = aggregations.Select(a => a.Name) }));
         app.MapPost("/api/tests", SaveTestAsync);
         app.MapPost("/api/tests/preview", PreviewStepAsync);
-        app.MapPost("/api/tests/{fileName}/clone", CloneTestAsync);
+        app.MapPost("/api/tests/clone", CloneTestAsync);
+        app.MapPost("/api/tests/move", MoveTestAsync);
+        app.MapPost("/api/folders/rename", RenameFolderAsync);
+        app.MapPost("/api/folders/delete", DeleteFolderAsync);
 
         app.MapGet("/api/shared", (string folderPath, CollectionManagementService manager) =>
             Results.Ok(new { shared = manager.ListShared(folderPath) }));
         app.MapGet("/api/shared/{fileName}", GetShared);
         app.MapPost("/api/shared", SaveSharedAsync);
         app.MapDelete("/api/shared/{fileName}", DeleteShared);
-        app.MapDelete("/api/tests/{fileName}", DeleteTest);
+        app.MapDelete("/api/tests/{**fileName}", DeleteTest);
     }
 
     private static async Task<IResult> InitCollectionAsync(HttpRequest request, string folderPath, CollectionInitializer initializer, CancellationToken cancellationToken)
@@ -261,15 +265,45 @@ internal static class HostServerService
         }
     }
 
-    private static async Task<IResult> CloneTestAsync(HttpRequest request, string folderPath, string fileName, CollectionManagementService manager, CancellationToken cancellationToken)
+    private static async Task<IResult> CloneTestAsync(HttpRequest request, string folderPath, CollectionManagementService manager, CancellationToken cancellationToken)
     {
         var payload = await request.ReadFromJsonAsync<ClonePayload>(cancellationToken);
+        return FileOperation(() =>
+        {
+            var result = manager.CloneTest(folderPath, payload?.FileName ?? string.Empty, payload?.Name ?? string.Empty);
+            return new { result.FilePath, result.FileName };
+        });
+    }
+
+    private static async Task<IResult> MoveTestAsync(HttpRequest request, string folderPath, CollectionManagementService manager, CancellationToken cancellationToken)
+    {
+        var payload = await request.ReadFromJsonAsync<MovePayload>(cancellationToken);
+        return FileOperation(() => new { fileName = manager.MoveTest(folderPath, payload?.FileName ?? string.Empty, payload?.Folder) });
+    }
+
+    private static async Task<IResult> RenameFolderAsync(HttpRequest request, string folderPath, CollectionManagementService manager, CancellationToken cancellationToken)
+    {
+        var payload = await request.ReadFromJsonAsync<RenameFolderPayload>(cancellationToken);
+        return FileOperation(() => new { folder = manager.RenameFolder(folderPath, payload?.Folder ?? string.Empty, payload?.NewFolder ?? string.Empty) });
+    }
+
+    private static async Task<IResult> DeleteFolderAsync(HttpRequest request, string folderPath, CollectionManagementService manager, CancellationToken cancellationToken)
+    {
+        var payload = await request.ReadFromJsonAsync<FolderPayload>(cancellationToken);
+        return FileOperation(() => new { deleted = manager.DeleteFolder(folderPath, payload?.Folder ?? string.Empty) });
+    }
+
+    /// <summary>
+    /// Runs a file operation; a refused one (bad name, missing file, a folder that already exists, the disk saying no)
+    /// is a 400 with the reason.
+    /// </summary>
+    private static IResult FileOperation(Func<object> operation)
+    {
         try
         {
-            var result = manager.CloneTest(folderPath, fileName, payload?.Name ?? string.Empty);
-            return Results.Ok(new { result.FilePath, result.FileName });
+            return Results.Ok(operation());
         }
-        catch (ArgumentException ex)
+        catch (Exception ex) when (ex is ArgumentException or IOException or UnauthorizedAccessException)
         {
             return Results.BadRequest(new { message = ex.Message });
         }
@@ -467,7 +501,13 @@ internal static class HostServerService
 
     private sealed record InitCollectionPayload(string CollectionName);
 
-    private sealed record ClonePayload(string? Name);
+    private sealed record ClonePayload(string? FileName, string? Name);
+
+    private sealed record MovePayload(string? FileName, string? Folder);
+
+    private sealed record RenameFolderPayload(string? Folder, string? NewFolder);
+
+    private sealed record FolderPayload(string? Folder);
 
     private sealed record OpenApiImportPayload(string CollectionName, string SpecificationUrl);
 }

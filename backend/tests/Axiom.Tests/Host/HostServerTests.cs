@@ -159,15 +159,36 @@ public sealed class HostServerTests : IAsyncLifetime
     {
         using var folder = new TempFolder();
         folder.Write("tests/a.test.yaml", "# note\nname: A\nsteps: []\n");
-        var route = $"/api/tests/a.test.yaml/clone?folderPath={Uri.EscapeDataString(folder.Path)}";
+        var route = $"/api/tests/clone?folderPath={Uri.EscapeDataString(folder.Path)}";
 
-        using var response = await _client.SendAsync(Request(HttpMethod.Post, route, body: new { name = "A (copy)" }));
+        using var response = await _client.SendAsync(Request(HttpMethod.Post, route, body: new { fileName = "a.test.yaml", name = "A (copy)" }));
         var clone = JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement;
-        using var missing = await _client.SendAsync(Request(HttpMethod.Post, route.Replace("a.test.yaml", "b.test.yaml"), body: new { name = "B" }));
+        using var missing = await _client.SendAsync(Request(HttpMethod.Post, route, body: new { fileName = "b.test.yaml", name = "B" }));
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal("a-copy.test.yaml", clone.GetProperty("fileName").GetString());
-        Assert.Equal("# note\nname: A (copy)\nsteps: []\n", folder.Read("tests/a-copy.test.yaml"));
+        Assert.Matches("^id: [0-9a-f]{16}\n# note\nname: A \\(copy\\)\nsteps: \\[\\]\n$", folder.Read("tests/a-copy.test.yaml"));
         Assert.Equal(HttpStatusCode.BadRequest, missing.StatusCode);
+    }
+
+    [Fact]
+    public async Task Tests_in_folders_are_read_moved_and_deleted_by_relative_path()
+    {
+        using var folder = new TempFolder();
+        folder.Write("tests/orders/create.test.yaml", "name: Create\nsteps: []\n");
+        var query = $"folderPath={Uri.EscapeDataString(folder.Path)}";
+
+        using var read = await _client.SendAsync(Request(HttpMethod.Get, $"/api/tests/orders/create.test.yaml?{query}"));
+        using var moved = await _client.SendAsync(Request(HttpMethod.Post, $"/api/tests/move?{query}", body: new { fileName = "orders/create.test.yaml", folder = "archive" }));
+        using var renamed = await _client.SendAsync(Request(HttpMethod.Post, $"/api/folders/rename?{query}", body: new { folder = "archive", newFolder = "old" }));
+        using var refused = await _client.SendAsync(Request(HttpMethod.Post, $"/api/tests/move?{query}", body: new { fileName = "old/create.test.yaml", folder = "../outside" }));
+        using var deleted = await _client.SendAsync(Request(HttpMethod.Post, $"/api/folders/delete?{query}", body: new { folder = "old" }));
+
+        Assert.Equal("Create", JsonDocument.Parse(await read.Content.ReadAsStringAsync()).RootElement.GetProperty("name").GetString());
+        Assert.Equal("archive/create.test.yaml", JsonDocument.Parse(await moved.Content.ReadAsStringAsync()).RootElement.GetProperty("fileName").GetString());
+        Assert.Equal("old", JsonDocument.Parse(await renamed.Content.ReadAsStringAsync()).RootElement.GetProperty("folder").GetString());
+        Assert.Equal(HttpStatusCode.BadRequest, refused.StatusCode);
+        Assert.Equal(1, JsonDocument.Parse(await deleted.Content.ReadAsStringAsync()).RootElement.GetProperty("deleted").GetInt32());
+        Assert.Empty(Directory.GetFileSystemEntries(Path.Combine(folder.Path, "tests")));
     }
 }

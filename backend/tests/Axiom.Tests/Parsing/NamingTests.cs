@@ -99,18 +99,27 @@ public class CollectionPathsTests
 
     [Theory]
     [InlineData("../evil")]
-    [InlineData("sub/dir")]
-    [InlineData("..\\evil")]
+    [InlineData("..\\evil")]                 // a backslash is a separator in test paths on every system
+    [InlineData("sub/../../evil")]
+    [InlineData("/abs/path")]
+    [InlineData("a:b")]
+    [InlineData("nul.test.yaml")]
+    [InlineData("a/b/c/d/deeper-than-allowed")]
     public void Names_that_could_leave_the_folder_are_rejected(string name)
     {
         using var folder = new TempFolder();
-        // A backslash is only a separator on Windows; elsewhere it is an ordinary (if odd) file name character.
-        if (name.Contains('\\') && !OperatingSystem.IsWindows())
-        {
-            Assert.StartsWith(folder.Path, CollectionPaths.TestFile(folder.Path, name));
-            return;
-        }
-
         Assert.Throws<ArgumentException>(() => CollectionPaths.TestFile(folder.Path, name));
+    }
+
+    [Theory]
+    [InlineData("sub/dir", "sub/dir.test.yaml")]
+    [InlineData("sub\\dir.test.yaml", "sub/dir.test.yaml")]
+    [InlineData("a/b/c/deepest", "a/b/c/deepest.test.yaml")]
+    [InlineData(" orders / create ", "orders/create.test.yaml")]
+    public void Tests_in_folders_are_addressed_by_their_relative_path(string input, string normalized)
+    {
+        using var folder = new TempFolder();
+        Assert.Equal(normalized, TestPaths.Normalize(input));
+        Assert.Equal(Path.Combine([folder.Path, "tests", .. normalized.Split('/')]), CollectionPaths.TestFile(folder.Path, input));
     }
 }

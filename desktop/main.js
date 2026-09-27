@@ -253,7 +253,7 @@ ipcMain.handle('delete-local-secret', async (_, payload) => {
 });
 
 ipcMain.handle('get-test-case', async (_, payload) => {
-  return hostRequest('GET', `/api/tests/${encodeURIComponent(payload.fileName)}`, {
+  return hostRequest('GET', `/api/tests/${encodeTestPath(payload.fileName)}`, {
     folderPath: payload.folderPath,
   });
 });
@@ -267,6 +267,7 @@ ipcMain.handle('save-test-case', async (_, payload) => {
     },
     {
       fileName: payload.fileName,
+      folder: payload.folder || null,
       name: payload.name,
       description: payload.description,
       endpoint: payload.endpoint,
@@ -280,9 +281,36 @@ ipcMain.handle('save-test-case', async (_, payload) => {
 ipcMain.handle('clone-test', async (_, payload) =>
   hostRequest(
     'POST',
-    `/api/tests/${encodeURIComponent(payload.fileName)}/clone`,
+    '/api/tests/clone',
     { folderPath: payload.folderPath },
-    { name: payload.name },
+    { fileName: payload.fileName, name: payload.name },
+  ),
+);
+
+ipcMain.handle('move-test', async (_, payload) =>
+  hostRequest(
+    'POST',
+    '/api/tests/move',
+    { folderPath: payload.folderPath },
+    { fileName: payload.fileName, folder: payload.folder || '' },
+  ),
+);
+
+ipcMain.handle('rename-folder', async (_, payload) =>
+  hostRequest(
+    'POST',
+    '/api/folders/rename',
+    { folderPath: payload.folderPath },
+    { folder: payload.folder, newFolder: payload.newFolder },
+  ),
+);
+
+ipcMain.handle('delete-folder', async (_, payload) =>
+  hostRequest(
+    'POST',
+    '/api/folders/delete',
+    { folderPath: payload.folderPath },
+    { folder: payload.folder },
   ),
 );
 
@@ -308,7 +336,7 @@ ipcMain.handle(
 );
 
 ipcMain.handle('delete-test-case', async (_, payload) => {
-  return hostRequest('DELETE', `/api/tests/${encodeURIComponent(payload.fileName)}`, {
+  return hostRequest('DELETE', `/api/tests/${encodeTestPath(payload.fileName)}`, {
     folderPath: payload.folderPath,
   });
 });
@@ -503,6 +531,11 @@ function startHostProcess() {
       cleanup();
     });
   });
+}
+
+// A test's path relative to the tests folder (orders/create.test.yaml) as a URL path: each segment encoded, '/' kept.
+function encodeTestPath(relativePath) {
+  return String(relativePath).split('/').map(encodeURIComponent).join('/');
 }
 
 function safeJsonParse(text) {

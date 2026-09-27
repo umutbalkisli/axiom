@@ -246,6 +246,37 @@ public class CollectionRunnerTests
     }
 
     [Fact]
+    public async Task A_whole_folder_can_be_picked_and_results_carry_the_relative_path_and_id()
+    {
+        using var folder = new TempFolder();
+        folder.Write("collection.yaml", CollectionHeader);
+        folder.Write("tests/orders/create.test.yaml", "id: 00000000000000aa\n" + Test("orders create"));
+        folder.Write("tests/orders/refunds/create.test.yaml", Test("refund create"));
+        folder.Write("tests/users/create.test.yaml", Test("users create"));
+
+        var result = await Run(folder, new StubHandler(_ => Http.Json("{}")), new RunOptions { Tests = ["orders/"] });
+
+        Assert.Equal(["orders/create.test.yaml", "orders/refunds/create.test.yaml"], result.TestCases.Select(t => t.FileName));
+        Assert.Equal(["00000000000000aa", null], result.TestCases.Select(t => t.TestId));
+        var one = await Run(folder, new StubHandler(_ => Http.Json("{}")), new RunOptions { Tests = ["users/create"] });
+        Assert.Equal(["users create"], one.TestCases.Select(t => t.Name));        // same file name in another folder is not picked
+    }
+
+    [Fact]
+    public async Task Two_tests_with_the_same_id_stop_the_run_with_both_files_named()
+    {
+        using var folder = new TempFolder();
+        folder.Write("collection.yaml", CollectionHeader);
+        folder.Write("tests/a.test.yaml", "id: 00000000000000aa\n" + Test("a"));
+        folder.Write("tests/copies/a.test.yaml", "id: 00000000000000aa\n" + Test("a copied by hand"));
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => Run(folder, new StubHandler(_ => Http.Json("{}"))));
+
+        Assert.Contains("a.test.yaml and copies/a.test.yaml", error.Message);
+        Assert.Contains("'00000000000000aa'", error.Message);
+    }
+
+    [Fact]
     public async Task Progress_is_reported_before_the_first_test_and_after_each_one()
     {
         using var folder = new TempFolder();
