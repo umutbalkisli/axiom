@@ -118,7 +118,8 @@ public sealed class KubernetesSecretProvider : ISecretProvider, IDisposable
 
     private static HttpClient CreateHttpClient()
     {
-        var handler = new HttpClientHandler();
+        // The cluster's own certificate authority, and the signed-in user for a proxy that asks.
+        var handler = new HttpClientHandler { DefaultProxyCredentials = System.Net.CredentialCache.DefaultCredentials };
         var caFile = Path.Combine(ServiceAccountDirectory(), "ca.crt");
         if (File.Exists(caFile))
         {

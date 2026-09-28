@@ -1,4 +1,5 @@
 using System.Text.Json.Nodes;
+using Axiom.Network;
 
 namespace Axiom.Secrets;
 
@@ -8,7 +9,15 @@ namespace Axiom.Secrets;
 /// </summary>
 public sealed class VaultSecretProvider : ISecretProvider, IDisposable
 {
-    private readonly HttpClient _httpClient = new();
+    private readonly HttpClient _httpClient;
+
+    /// <summary>
+    /// Creates the provider; it reaches Vault like every other call, through <paramref name="network"/>.
+    /// </summary>
+    public VaultSecretProvider(NetworkSettings? network = null)
+    {
+        _httpClient = new HttpClient(AxiomHttp.CreateHandler(network ?? NetworkSettings.FromEnvironment()));
+    }
 
     /// <summary>
     /// The provider name: <c>vault</c>.

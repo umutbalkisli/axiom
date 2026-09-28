@@ -23,9 +23,11 @@ internal static class SecureStorage
 {
     /// <summary>
     /// The secure store of this system, or one that refuses every write when there is none (values are never kept in
-    /// plain text).
+    /// plain text). <paramref name="allowPrompts"/>: whether the store may ask the user for permission (the macOS
+    /// keychain does when a program it does not know yet reads an item); without a user to answer, a read fails
+    /// with an explanation instead of waiting for a dialog nobody sees.
     /// </summary>
-    public static ISecureStorage ForThisSystem()
+    public static ISecureStorage ForThisSystem(bool allowPrompts)
     {
         if (OperatingSystem.IsWindows())
         {
@@ -34,7 +36,7 @@ internal static class SecureStorage
 
         if (OperatingSystem.IsMacOS())
         {
-            return new KeychainStorage();
+            return new KeychainStorage(allowPrompts);
         }
 
         return SecretToolStorage.IsAvailable() ? new SecretToolStorage() : new UnavailableStorage();
@@ -45,9 +47,9 @@ internal static class SecureStorage
 /// Finds the system's store only when a value is actually needed (on Linux that means starting secret-tool), so a
 /// program run with no local secrets never touches it.
 /// </summary>
-internal sealed class LazySecureStorage : ISecureStorage
+internal sealed class LazySecureStorage(bool allowPrompts) : ISecureStorage
 {
-    private readonly Lazy<ISecureStorage> _storage = new(SecureStorage.ForThisSystem);
+    private readonly Lazy<ISecureStorage> _storage = new(() => SecureStorage.ForThisSystem(allowPrompts));
 
     public void Write(string key, string value) => _storage.Value.Write(key, value);
 
@@ -115,14 +117,18 @@ internal sealed class DpapiStorage : ISecureStorage
 /// never shows up in the process list).
 /// </summary>
 [SupportedOSPlatform("macos")]
-internal sealed partial class KeychainStorage : ISecureStorage
+internal sealed partial class KeychainStorage(bool allowPrompts) : ISecureStorage
 {
     private const string Security = "/System/Library/Frameworks/Security.framework/Security";
     private const int ItemNotFound = -25300;
+    private const int InteractionNotAllowed = -25308;
+    private const int AuthFailed = -25293;
+    private const int UserCanceled = -128;
     private static readonly byte[] Service = "Axiom local secrets"u8.ToArray();
 
     public void Write(string key, string value)
     {
+        SecKeychainSetUserInteractionAllowed(allowPrompts ? (byte)1 : (byte)0);
         var account = Encoding.UTF8.GetBytes(key);
         var data = Encoding.UTF8.GetBytes(value);
         var status = SecKeychainFindGenericPassword(IntPtr.Zero, (uint)Service.Length, Service, (uint)account.Length, account, out _, out var existing, out var item);
@@ -146,6 +152,7 @@ internal sealed partial class KeychainStorage : ISecureStorage
 
     public string? Read(string key)
     {
+        SecKeychainSetUserInteractionAllowed(allowPrompts ? (byte)1 : (byte)0);
         var account = Encoding.UTF8.GetBytes(key);
         var status = SecKeychainFindGenericPassword(IntPtr.Zero, (uint)Service.Length, Service, (uint)account.Length, account, out var length, out var data, out var item);
         if (status == ItemNotFound)
@@ -169,6 +176,7 @@ internal sealed partial class KeychainStorage : ISecureStorage
 
     public void Delete(string key)
     {
+        SecKeychainSetUserInteractionAllowed(allowPrompts ? (byte)1 : (byte)0);
         var account = Encoding.UTF8.GetBytes(key);
         var status = SecKeychainFindGenericPassword(IntPtr.Zero, (uint)Service.Length, Service, (uint)account.Length, account, out _, out var data, out var item);
         if (status == ItemNotFound)
@@ -188,13 +196,27 @@ internal sealed partial class KeychainStorage : ISecureStorage
         }
     }
 
-    private static void Check(int status)
+    private void Check(int status)
     {
-        if (status != 0)
+        switch (status)
         {
-            throw new InvalidOperationException($"The keychain refused the operation (OSStatus {status}).");
+            case 0:
+                return;
+            case InteractionNotAllowed:
+            case AuthFailed when !allowPrompts:     // what the keychain answers when it would have asked
+                // The keychain remembers which program stored an item; a rebuilt or newly downloaded axiom is a new
+                // program to it, and it asks once. With no one to answer, it must not wait.
+                throw new InvalidOperationException(
+                    "the macOS keychain needs your permission for this copy of axiom. Run the command in Terminal (or open the Axiom app) and choose \"Always Allow\".");
+            case UserCanceled:
+                throw new InvalidOperationException("access to the macOS keychain was denied.");
+            default:
+                throw new InvalidOperationException($"the macOS keychain refused (OSStatus {status}).");
         }
     }
+
+    [LibraryImport(Security)]
+    private static partial int SecKeychainSetUserInteractionAllowed(byte state);
 
     [LibraryImport(Security)]
     private static partial int SecKeychainAddGenericPassword(IntPtr keychain, uint serviceNameLength, byte[] serviceName, uint accountNameLength, byte[] accountName, uint passwordLength, byte[] passwordData, IntPtr itemRef);

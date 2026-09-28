@@ -62,6 +62,35 @@
     <UiDist>$(UiDirectory)dist/</UiDist>
   </PropertyGroup>
 
+  <!--
+    Publishing for macOS also makes Axiom.app next to the executable (and a zip of it when publishing on a Mac):
+    double-clicking the .app opens the app without a Terminal window. The same executable is inside, so
+    Axiom.app/Contents/MacOS/axiom still works as the CLI. Ad-hoc signed so it runs on Apple Silicon; distributing it
+    to other Macs needs a Developer ID signature and notarization.
+  -->
+  <PropertyGroup>
+    <AxiomBundleIdentifier Condition="'$(AxiomBundleIdentifier)' == ''">dev.axiom.app</AxiomBundleIdentifier>
+  </PropertyGroup>
+
+  <Target Name="MacAppBundle" AfterTargets="Publish" Condition="$(RuntimeIdentifier.StartsWith('osx'))">
+    <PropertyGroup>
+      <!-- Here, not at the top: the SDK sets Version after the project file is read. -->
+      <AxiomVersion Condition="'$(AxiomVersion)' == ''">$(Version)</AxiomVersion>
+      <AppBundle>$([System.IO.Path]::GetFullPath('$(PublishDir)Axiom.app'))/</AppBundle>
+      <InfoPlist>$([System.IO.File]::ReadAllText('$(MSBuildThisFileDirectory)macOS/Info.plist').Replace('{BUNDLE_ID}', '$(AxiomBundleIdentifier)').Replace('{VERSION}', '$(AxiomVersion)'))</InfoPlist>
+      <AppZip>$([System.IO.Path]::GetFullPath('$(PublishDir)Axiom-$(RuntimeIdentifier).zip'))</AppZip>
+    </PropertyGroup>
+    <RemoveDir Directories="$(AppBundle)" />
+    <Delete Files="$(AppZip)" />
+    <MakeDir Directories="$(AppBundle)Contents/MacOS;$(AppBundle)Contents/Resources" />
+    <Copy SourceFiles="$(PublishDir)axiom" DestinationFolder="$(AppBundle)Contents/MacOS" />
+    <Copy SourceFiles="$(MSBuildThisFileDirectory)macOS/Axiom.icns" DestinationFolder="$(AppBundle)Contents/Resources" />
+    <WriteLinesToFile File="$(AppBundle)Contents/Info.plist" Lines="$(InfoPlist)" Overwrite="true" />
+    <Exec Condition="$([MSBuild]::IsOSPlatform('OSX'))" Command="chmod +x &quot;$(AppBundle)Contents/MacOS/axiom&quot; &amp;&amp; codesign --force --sign - &quot;$(AppBundle)&quot;" />
+    <Exec Condition="$([MSBuild]::IsOSPlatform('OSX'))" Command="ditto -c -k --keepParent &quot;$(AppBundle)&quot; &quot;$(AppZip)&quot;" />
+    <Message Importance="high" Text="Axiom -> $(AppBundle)" />
+  </Target>
+
   <Target Name="BuildUi" Condition="'$(BuildUi)' == 'true'" BeforeTargets="EmbedUi">
     <Exec Command="npm ci" WorkingDirectory="$(UiDirectory)" />
     <Exec Command="npm run build" WorkingDirectory="$(UiDirectory)" />

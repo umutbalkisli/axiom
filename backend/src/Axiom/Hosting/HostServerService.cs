@@ -60,7 +60,7 @@ internal static class HostServerService
         var dataDirectory = options.DataDirectory ?? AppData.Directory;
         Directory.CreateDirectory(dataDirectory);
         builder.Services.AddSingleton(new Preferences(dataDirectory));
-        builder.Services.AddSingleton(new LocalSecretStore(options.SecureStorage ?? new LazySecureStorage(), dataDirectory));
+        builder.Services.AddSingleton(new LocalSecretStore(options.SecureStorage ?? new LazySecureStorage(allowPrompts: options.Ui), dataDirectory));
         builder.Services.AddSingleton<UiSession>();
         var uiFiles = options.UiDirectory is { } directory ? UiFiles.FromDirectory(directory) : UiFiles.Embedded();
 
@@ -477,7 +477,7 @@ internal static class HostServerService
             var options = new RunOptions
             {
                 // Values of "local" secrets come from this machine's secure storage unless the caller brings its own.
-                LocalSecrets = payload?.LocalSecrets ?? localSecrets.Values(folderPath),
+                LocalSecrets = payload?.LocalSecrets ?? localSecrets.ValuesForRun(folderPath, payload?.Environment, out _),
                 Environment = payload?.Environment,
                 Tests = payload?.Tests,
                 OnStarted = total => events.Writer.TryWrite(new { type = "started", total }),
@@ -543,7 +543,7 @@ internal static class HostServerService
             var test = loader.ParseTest(CollectionManagementService.ToYaml(payload.Test), sourceName);
             var preview = await runner.PreviewAsync(folderPath, test, payload.StepIndex, new RunOptions
             {
-                LocalSecrets = payload.LocalSecrets ?? localSecrets.Values(folderPath),
+                LocalSecrets = payload.LocalSecrets ?? localSecrets.ValuesForRun(folderPath, payload.Environment, out _),
                 Environment = payload.Environment,
             }, cancellationToken);
             return Results.Ok(preview);

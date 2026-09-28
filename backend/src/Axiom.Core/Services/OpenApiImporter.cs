@@ -1,4 +1,5 @@
 using Axiom.Documents;
+using Axiom.Network;
 using Axiom.Parsing;
 using Axiom.Runtime;
 using Axiom.Serialization;
@@ -13,7 +14,7 @@ namespace Axiom.Services;
 /// <summary>
 /// Creates the importer.
 /// </summary>
-public sealed class OpenApiImporter(HttpClient httpClient, CollectionInitializer initializer, CollectionManagementService manager)
+public sealed class OpenApiImporter(HttpClient httpClient, CollectionInitializer initializer, CollectionManagementService manager, NetworkSettings? network = null)
 {
     /// <summary>
     /// Downloads an OpenAPI document and saves one basic test per operation. Returns the number of tests created.
@@ -25,7 +26,16 @@ public sealed class OpenApiImporter(HttpClient httpClient, CollectionInitializer
             throw new InvalidOperationException("OpenAPI URL must be a valid HTTP or HTTPS URL.");
         }
 
-        var specification = await httpClient.GetStringAsync(uri, cancellationToken);
+        string specification;
+        try
+        {
+            specification = await httpClient.GetStringAsync(uri, cancellationToken);
+        }
+        catch (HttpRequestException ex)
+        {
+            throw new InvalidOperationException($"The OpenAPI document could not be downloaded: {NetworkErrors.Describe(ex, uri, network ?? new NetworkSettings())}", ex);
+        }
+
         var extension = uri.AbsolutePath.EndsWith(".json", StringComparison.OrdinalIgnoreCase) ? ".json" : ".yaml";
         await initializer.InitializeAsync(folderPath, collectionName, cancellationToken);
         return ImportOpenApiDocument(folderPath, extension, specification);

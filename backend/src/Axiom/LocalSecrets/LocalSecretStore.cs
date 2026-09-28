@@ -62,13 +62,32 @@ internal sealed class LocalSecretStore(ISecureStorage storage, string directory)
     }
 
     /// <summary>
-    /// Every stored value of a collection, for a run. A value that cannot be read is left out; the run then reports
-    /// that secret as missing.
+    /// Every stored value of a collection, for a run. A value that cannot be read is left out (the run then reports
+    /// that secret as missing); <paramref name="problems"/> says why, per secret.
     /// </summary>
-    public Dictionary<string, string> Values(string folderPath)
+    public Dictionary<string, string> Values(string folderPath, out List<string> problems) => Values(folderPath, null, out problems);
+
+    /// <summary>
+    /// The stored values a run of <paramref name="folderPath"/> in <paramref name="environment"/> actually needs: only
+    /// secrets whose source there is <c>local</c>. A run whose secrets all come from elsewhere (an environment override
+    /// on a build server) never touches the secure storage.
+    /// </summary>
+    public Dictionary<string, string> ValuesForRun(string folderPath, string? environment, out List<string> problems)
+    {
+        var secrets = new Axiom.Services.CollectionManagementService().GetCollection(folderPath)?.Secrets ?? [];
+        var needed = secrets.Values
+            .Select(reference => reference.SourceFor(environment))
+            .Where(source => string.Equals(source.Provider, "local", StringComparison.OrdinalIgnoreCase))
+            .Select(source => source.Key)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return Values(folderPath, needed, out problems);
+    }
+
+    private Dictionary<string, string> Values(string folderPath, IReadOnlySet<string>? only, out List<string> problems)
     {
         var values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var name in Names(folderPath))
+        problems = [];
+        foreach (var name in Names(folderPath).Where(name => only is null || only.Contains(name)))
         {
             try
             {
@@ -77,14 +96,19 @@ internal sealed class LocalSecretStore(ISecureStorage storage, string directory)
                     values[name] = value;
                 }
             }
-            catch (InvalidOperationException)
+            catch (InvalidOperationException ex)
             {
-                // The store refused (for example a locked keychain on a build machine): reported as missing by the run.
+                problems.Add($"Local secret '{name}' could not be read: {ex.Message}");
             }
         }
 
         return values;
     }
+
+    /// <summary>
+    /// <see cref="Values(string, out List{string})"/> without the reasons.
+    /// </summary>
+    public Dictionary<string, string> Values(string folderPath) => Values(folderPath, out _);
 
     private static string Normalize(string folderPath) => Path.GetFullPath(folderPath).TrimEnd(Path.DirectorySeparatorChar);
 

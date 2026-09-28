@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Security.Cryptography;
 using System.Text.Json;
 using Axiom.Hosting;
+using Axiom.Network;
 using Axiom.LocalSecrets;
 using Axiom.Runtime;
 using Axiom.Services;
@@ -25,15 +26,15 @@ internal static class ProgramEntry
         var parsed = ParseCliArguments(args);
         isJsonResponseMode = parsed.JsonMode;
 
+        if (IsAppLaunch(Environment.ProcessPath, parsed.Args, WindowsConsole.StartedByDoubleClick()))
+        {
+            // Double-clicked (axiom.exe in Explorer, or Axiom.app in Finder): open the app, without a console window.
+            WindowsConsole.Hide();
+            return await HandleUiAsync(["ui"]);
+        }
+
         if (parsed.Args.Length == 0)
         {
-            // Double-clicked in Windows Explorer: open the app, without the empty console window.
-            if (WindowsConsole.StartedByDoubleClick())
-            {
-                WindowsConsole.Hide();
-                return await HandleUiAsync(["ui"]);
-            }
-
             return PrintHelpAndReturn();
         }
 
@@ -47,6 +48,7 @@ internal static class ProgramEntry
                 "run" => await HandleRunAsync(rest),
                 "serve" => await HandleServeAsync(rest),
                 "ui" => await HandleUiAsync(rest),
+                "network" => await HandleNetworkAsync(rest),
                 _ => HandleUnknownCommand(),
             };
         }
@@ -54,6 +56,22 @@ internal static class ProgramEntry
         {
             return await WriteErrorAndReturnAsync("UNEXPECTED", ex.Message, null, 3);
         }
+    }
+
+    /// <summary>
+    /// True when the program was started as an app rather than as a command: with no arguments, either double-clicked
+    /// in Windows Explorer (the only process in its console) or started from a macOS app bundle (Finder, Dock, Launchpad).
+    /// Older macOS versions pass a <c>-psn_...</c> argument to apps; it counts as none.
+    /// </summary>
+    internal static bool IsAppLaunch(string? processPath, string[] args, bool doubleClickedOnWindows)
+    {
+        if (args.Any(a => !a.StartsWith("-psn_", StringComparison.Ordinal)))
+        {
+            return false;
+        }
+
+        return doubleClickedOnWindows
+            || (processPath?.Contains(".app/Contents/MacOS/", StringComparison.Ordinal) ?? false);
     }
 
     private static (bool JsonMode, string[] Args) ParseCliArguments(string[] args)
@@ -113,8 +131,15 @@ internal static class ProgramEntry
         try
         {
             await using var services = new ServiceCollection().AddAxiomCore().BuildServiceProvider();
-            // "local" secrets: the values stored on this machine by the app (secure storage), if any.
-            var localSecrets = new LocalSecretStore(new LazySecureStorage(), AppData.Directory).Values(args[1]);
+            // "local" secrets: the values stored on this machine by the app (secure storage), if any. The keychain may
+            // ask for permission only when someone is at a terminal to answer; otherwise a read fails and says why.
+            var localSecrets = new LocalSecretStore(new LazySecureStorage(allowPrompts: !Console.IsInputRedirected), AppData.Directory)
+                .ValuesForRun(args[1], environment, out var secretProblems);
+            foreach (var problem in secretProblems)
+            {
+                await Console.Error.WriteLineAsync(problem);
+            }
+
             var result = await services.GetRequiredService<CollectionRunner>().RunAsync(args[1], new RunOptions { Environment = environment, LocalSecrets = localSecrets });
 
             if (isJsonResponseMode)
@@ -168,7 +193,9 @@ internal static class ProgramEntry
             return await WriteUsageAndReturnAsync(usage);
         }
 
-        var open = !args.Any(a => string.Equals(a, "--no-open", StringComparison.OrdinalIgnoreCase));
+        // AXIOM_NO_OPEN=1 does the same as --no-open, also for a double-click start (useful to check a build headless).
+        var open = !args.Any(a => string.Equals(a, "--no-open", StringComparison.OrdinalIgnoreCase))
+            && Environment.GetEnvironmentVariable("AXIOM_NO_OPEN") is not ("1" or "true");
         var options = new HostOptions
         {
             Port = port,
@@ -190,6 +217,93 @@ internal static class ProgramEntry
         return 0;
     }
 
+    /// <summary>
+    /// Shows how Axiom reaches <c>url</c> (proxy, sign-in, extra trusted certificates) and tries it: the first thing to
+    /// run when requests fail behind a company proxy.
+    /// </summary>
+    private static async Task<int> HandleNetworkAsync(string[] args)
+    {
+        if (args.Length < 2 || !Uri.TryCreate(args[1], UriKind.Absolute, out var uri) || uri.Scheme is not ("http" or "https"))
+        {
+            return await WriteUsageAndReturnAsync("Usage: axiom network <http(s)-url>");
+        }
+
+        NetworkSettings settings;
+        try
+        {
+            settings = NetworkSettings.FromEnvironment();
+        }
+        catch (InvalidOperationException ex)
+        {
+            return await WriteErrorAndReturnAsync("NETWORK_SETTINGS", ex.Message, null, 3);
+        }
+
+        var proxy = settings.ProxyFor(uri);
+        var environment = new[] { "AXIOM_PROXY", "HTTPS_PROXY", "HTTP_PROXY", "ALL_PROXY", "NO_PROXY", "AXIOM_CA_CERTS" }
+            .Select(name => (Name: name, Value: Environment.GetEnvironmentVariable(name) ?? Environment.GetEnvironmentVariable(name.ToLowerInvariant())))
+            .Where(variable => !string.IsNullOrWhiteSpace(variable.Value))
+            .ToDictionary(variable => variable.Name, variable => variable.Name.EndsWith("PROXY", StringComparison.Ordinal) && variable.Name != "NO_PROXY"
+                ? ExplicitProxyAddress.Redact(variable.Value!)
+                : variable.Value!);
+
+        using var client = new HttpClient(AxiomHttp.CreateHandler(settings)) { Timeout = TimeSpan.FromSeconds(30) };
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        int? status = null;
+        string? error = null;
+        try
+        {
+            using var response = await client.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead);
+            status = (int)response.StatusCode;
+            if (response.StatusCode == System.Net.HttpStatusCode.ProxyAuthenticationRequired && proxy is not null)
+            {
+                error = NetworkErrors.DescribeProxySignIn(uri, proxy);
+            }
+        }
+        catch (HttpRequestException ex)
+        {
+            error = NetworkErrors.Describe(ex, uri, settings);
+        }
+        catch (TaskCanceledException)
+        {
+            error = $"No answer within 30 seconds (request went {(proxy is null ? "direct" : $"through proxy {NetworkSettings.Display(proxy)}")}).";
+        }
+
+        var report = new
+        {
+            url = uri.ToString(),
+            proxySetting = settings.ProxySource,
+            route = proxy is null ? "direct" : NetworkSettings.Display(proxy),
+            extraRoots = settings.ExtraRoots.Count,
+            environment,
+            status,
+            durationMs = (int)watch.Elapsed.TotalMilliseconds,
+            error,
+        };
+
+        if (isJsonResponseMode)
+        {
+            WriteJsonEnvelope(new JsonEnvelope<object?>(error is null, report, error is null ? null : new JsonError("NETWORK", error, null)));
+        }
+        else
+        {
+            Console.WriteLine($"URL            : {report.url}");
+            Console.WriteLine($"Proxy setting  : {report.proxySetting}{(settings.ProxySource == "system settings" ? " (the system's proxy settings, including a PAC script)" : string.Empty)}");
+            Console.WriteLine($"Route          : {(proxy is null ? "direct" : $"through proxy {report.route}")}");
+            Console.WriteLine($"Proxy sign-in  : {(proxy is null ? "-" : "the signed-in user (Windows NTLM / Kerberos), or the user name and password in the proxy address")}");
+            Console.WriteLine($"Extra roots    : {(settings.ExtraRoots.Count == 0 ? "none (AXIOM_CA_CERTS not set)" : $"{settings.ExtraRoots.Count} from {settings.ExtraRootsFile}")}");
+            foreach (var (name, value) in environment)
+            {
+                Console.WriteLine($"{name,-15}: {value}");
+            }
+
+            Console.WriteLine(error is null
+                ? $"Result         : HTTP {status} in {report.durationMs} ms. The network path works."
+                : $"Result         : failed after {report.durationMs} ms.{Environment.NewLine}                 {error}");
+        }
+
+        return error is null ? 0 : 3;
+    }
+
     private static string NewToken() => RandomNumberGenerator.GetHexString(64, lowercase: true);
 
     private static (int Port, bool Error) ParsePort(string[] args, int fallback)
@@ -208,6 +322,7 @@ internal static class ProgramEntry
         Console.WriteLine("Axiom");
         Console.WriteLine("  axiom ui [--port <number>] [--no-open]           open the app (also: double-click the program on Windows)");
         Console.WriteLine("  axiom run <collection-folder> [--env <name>] [--json]");
+        Console.WriteLine("  axiom network <url>                               how Axiom reaches a URL (proxy, sign-in, certificates), and try it");
         Console.WriteLine("  axiom serve [--port <number>]   API only (0 picks a free port; requests need 'Authorization: Bearer $AXIOM_HOST_TOKEN')");
     }
 

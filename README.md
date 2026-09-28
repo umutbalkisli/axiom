@@ -87,6 +87,7 @@ dotnet run --project backend/src/Axiom -- run <collection-folder>
 dotnet run --project backend/src/Axiom -- run <collection-folder> --env ci
 dotnet run --project backend/src/Axiom -- run <collection-folder> --json
 dotnet run --project backend/src/Axiom -- serve [--port <number>]
+dotnet run --project backend/src/Axiom -- network <url>
 ```
 
 - `run` executes every `tests/**/*.test.yaml` in the collection and prints a report. With `--json` the result is printed as a JSON envelope (`{ ok, data, error }`).
@@ -107,6 +108,33 @@ Reports tell apart two different things that both stop a test from passing:
 - **Error** (`ERROR` in the text report, `outcome: "Error"` in `--json`): the check or step could not be evaluated, which points at the test or its environment rather than the API: an unknown operator, aggregation or source, an invalid regular expression, an unresolved `{{variable}}`, ordering a list, an unreachable server. Each assertion, step and test has an `outcome` of `Passed`, `Failed` or `Error`; a test with any error counts as an error.
 
 The summary line and the JSON result count both (`failedCount`, `errorCount`), and the app shows errors in amber apart from failures in red. The exit code is `2` when anything did not pass, failed or error.
+
+## Networking and proxies
+
+Every call Axiom makes to the outside (request steps, OpenAPI import, Vault) goes through one set of network settings, read from the environment, so the same collection runs on a laptop behind a company proxy and on a build server. The app's own window only talks to `127.0.0.1`, which never goes through a proxy.
+
+| Setting | What it does |
+| --- | --- |
+| *(nothing set)* | The system's proxy settings: on Windows the Internet Options / Edge settings, including an automatic configuration (PAC) script; on macOS System Settings → Network → Proxies. |
+| `HTTPS_PROXY`, `HTTP_PROXY`, `ALL_PROXY` | A proxy for https / http addresses (in upper or lower case), used instead of the system's settings. |
+| `NO_PROXY` | Addresses that go direct: comma-separated; `corp.com` and `.corp.com` also cover subdomains (as in curl), `*` covers everything, and `localhost` / `127.0.0.1` always go direct. |
+| `AXIOM_PROXY` | Overrides all of the above: `system` (the default), `none` (always direct, for a network without a proxy), or an address such as `http://proxy.corp:8080` (with `NO_PROXY` for exceptions). |
+| `AXIOM_CA_CERTS` | A PEM file of extra root certificates to trust, for a company proxy that inspects HTTPS with its own certificate. The system's roots stay trusted; a certificate for the wrong host name or an expired one is still refused. |
+
+**Signing in to the proxy.** When a proxy asks, Axiom sends the signed-in user's credentials (Windows NTLM / Kerberos) by itself; nothing to configure on a company Windows laptop. A proxy that wants a user name and password gets them from its address: `HTTPS_PROXY=http://user:password@proxy.corp:8080` (or `AXIOM_PROXY`); special characters in the password are URL-encoded (`@` as `%40`). A password is never shown: messages and `axiom network` print `user:***@proxy`.
+
+**When a request fails,** the step says which way it went (direct, or through which proxy) and what usually fixes it: a proxy asking for a sign-in (407, reported as the proxy's answer, not as a failed check), a certificate the machine does not trust (HTTPS inspection: `AXIOM_CA_CERTS`), a proxy that cannot be reached, or a name that cannot be found.
+
+**`axiom network <url>`** shows how Axiom reaches an address and tries it: the proxy setting and where it came from, the route (direct or through which proxy), the sign-in, extra trusted certificates, the proxy variables that are set, and the result or the explained error. It is the first thing to run when requests fail behind a proxy; `--json` gives the same as data.
+
+```
+URL            : https://api.example.com/health
+Proxy setting  : system settings (the system's proxy settings, including a PAC script)
+Route          : through proxy http://proxy.corp:8080
+Proxy sign-in  : the signed-in user (Windows NTLM / Kerberos), or the user name and password in the proxy address
+Extra roots    : none (AXIOM_CA_CERTS not set)
+Result         : HTTP 200 in 142 ms. The network path works.
+```
 
 ## Local host API
 
@@ -437,14 +465,17 @@ How values are compared:
 ## The app
 
 ```bash
-axiom ui                 # or double-click axiom.exe on Windows
+axiom ui                 # or double-click axiom.exe on Windows, or Axiom.app on macOS
 ```
 
 `axiom ui` starts the local host on a free port and opens the UI in an app window of Edge or Chrome (no tabs or address bar; the default browser when neither is installed). It is the same program as the CLI: one executable, nothing else to install.
 
+- **Double-click:** started with no arguments from Windows Explorer (`axiom.exe`) or from a macOS app bundle (`Axiom.app`: Finder, Dock, Launchpad), the program opens the app, with no console or Terminal window. Typed in a terminal without arguments it prints its help, and with arguments it is the CLI, also inside the bundle (`Axiom.app/Contents/MacOS/axiom run ...`; link it into your `PATH` to type `axiom`). On macOS the app has no Dock icon: its window is the browser window.
+
 - **It ends with its window.** The UI pings the host while it is open and says goodbye when its window closes; the host then stops (a reload pings again, so it does not). It also stops when no UI has been heard from for 3 minutes, or when none connected within 5 minutes. Press Ctrl+C to stop it from a terminal.
-- **Options:** `--no-open` prints the link instead of opening it (open it in any browser); `--port <n>` picks the port; `--ui-dir <folder>` serves the UI from a folder instead of the built-in copy (for UI development).
-- **Where it keeps things:** preferences (language, theme, recent collections) and the list of local secrets in `%APPDATA%\Axiom` on Windows or `~/.config/Axiom` elsewhere (`AXIOM_DATA_DIR` overrides it); local secret values in the OS secure storage (see [Secrets](#secrets)).
+- **Options:** `--no-open` prints the link instead of opening it (open it in any browser; `AXIOM_NO_OPEN=1` does the same, also for a double-click start); `--port <n>` picks the port; `--ui-dir <folder>` serves the UI from a folder instead of the built-in copy (for UI development).
+- **Where it keeps things:** preferences (language, theme, recent collections) and the list of local secrets in `%APPDATA%\Axiom` on Windows, `~/Library/Application Support/Axiom` on macOS and `~/.config/Axiom` on Linux (`AXIOM_DATA_DIR` overrides it); local secret values in the OS secure storage (see [Secrets](#secrets)).
+- **macOS keychain permission:** the keychain remembers which program stored a secret. A rebuilt or newly downloaded `axiom` is a new program to it, so the first time it reads a stored secret, macOS asks; choose **Always Allow**. The app and a CLI run in Terminal can show that question; a CLI run with no terminal (a script) cannot, so instead of waiting it reports that the secret needs permission. Releases signed with the same Developer ID keep access across updates. A run only reads the local secrets it needs: with an environment whose secrets come from elsewhere (`--env ci`), the keychain is not touched at all.
 - **Proxies:** the UI only talks to the local host on `127.0.0.1`, which browsers never send through a proxy; all outgoing traffic (your APIs, OpenAPI documents) is made by the engine.
 
 Moving from the Electron app: local secret values it stored cannot be read by the new app (they were encrypted by Electron); enter them once more under **Collection → Secrets**.
@@ -468,7 +499,11 @@ dotnet publish backend/src/Axiom -c Release -r osx-arm64 -p:BuildUi=true -o publ
 dotnet publish backend/src/Axiom -c Release -r linux-x64 -p:BuildUi=true -o publish/linux-x64   # axiom
 ```
 
-Each is one self-contained file with the .NET runtime, the UI and the SQLite / SQL Server native libraries inside: about 55 MB on Windows and Linux (compressed) and 120 MB on macOS (not compressed: a compressed single file crashes there on the first HTTPS request after a keychain read). Sign them for distribution (Authenticode on Windows, a Developer ID and notarization on macOS) so SmartScreen and Gatekeeper let them run.
+Each is one self-contained file with the .NET runtime, the UI and the SQLite / SQL Server native libraries inside: about 55 MB on Windows and Linux (compressed) and 120 MB on macOS (not compressed: a compressed single file crashes there on the first HTTPS request after a keychain read).
+
+Publishing for macOS (`osx-arm64`, `osx-x64`) also makes **`Axiom.app`** next to the executable, with its icon and `Info.plist`, ad-hoc signed so it runs on Apple Silicon, and, when publishing on a Mac, **`Axiom-osx-arm64.zip`** of it (about 45 MB) to hand out. Set `-p:AxiomVersion=1.2.0` for the version the Finder shows and `-p:AxiomBundleIdentifier=com.yourcompany.axiom` for your own bundle id.
+
+Sign them for distribution (Authenticode on Windows; a Developer ID signature and notarization of `Axiom.app` on macOS) so SmartScreen and Gatekeeper let them run on other machines: an unsigned download is blocked, and a Developer ID also keeps keychain access across updates.
 
 ## Next build targets
 

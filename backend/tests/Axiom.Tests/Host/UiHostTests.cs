@@ -255,3 +255,65 @@ public sealed class LocalSecretStoreTests
         }
     }
 }
+
+public sealed class AppLaunchTests
+{
+    [Theory]
+    [InlineData("/Applications/Axiom.app/Contents/MacOS/axiom", new string[0], false, true)]              // Finder, Dock
+    [InlineData("/Applications/Axiom.app/Contents/MacOS/axiom", new[] { "-psn_0_12345" }, false, true)]   // older macOS
+    [InlineData("/Applications/Axiom.app/Contents/MacOS/axiom", new[] { "run", "folder" }, false, false)] // the CLI inside the bundle
+    [InlineData("/usr/local/bin/axiom", new string[0], false, false)]                                      // typed in a terminal: help
+    [InlineData(@"C:\Tools\axiom.exe", new string[0], true, true)]                                          // Explorer double-click
+    [InlineData(@"C:\Tools\axiom.exe", new[] { "ui" }, true, false)]
+    public void The_app_opens_only_when_started_as_an_app(string processPath, string[] args, bool doubleClickedOnWindows, bool expected)
+    {
+        Assert.Equal(expected, Axiom.ProgramEntry.IsAppLaunch(processPath, args, doubleClickedOnWindows));
+    }
+}
+
+public sealed class LocalSecretsForRunTests
+{
+    [Fact]
+    public void Only_secrets_whose_source_is_local_in_the_chosen_environment_are_read()
+    {
+        using var data = new TempFolder();
+        using var collection = new TempFolder();
+        collection.Write("collection.yaml", """
+            name: C
+            secrets:
+              token:
+                provider: local
+                key: token
+                environments:
+                  ci: { provider: env, key: TOKEN }
+            """);
+        var storage = new CountingStorage();
+        var store = new LocalSecretStore(storage, data.Path);
+        store.Set(collection.Path, "token", "value");
+
+        var onLaptop = store.ValuesForRun(collection.Path, null, out _);
+        storage.Reads = 0;
+        var onCi = store.ValuesForRun(collection.Path, "ci", out _);
+
+        Assert.Equal("value", onLaptop["token"]);
+        Assert.Empty(onCi);
+        Assert.Equal(0, storage.Reads);           // the ci run never touched the secure storage
+    }
+
+    private sealed class CountingStorage : ISecureStorage
+    {
+        private readonly Dictionary<string, string> _values = [];
+
+        public int Reads { get; set; }
+
+        public void Write(string key, string value) => _values[key] = value;
+
+        public string? Read(string key)
+        {
+            Reads++;
+            return _values.GetValueOrDefault(key);
+        }
+
+        public void Delete(string key) => _values.Remove(key);
+    }
+}

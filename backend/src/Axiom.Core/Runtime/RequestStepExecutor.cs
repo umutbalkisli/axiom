@@ -3,6 +3,7 @@ using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using Axiom.Models;
+using Axiom.Network;
 
 namespace Axiom.Runtime;
 
@@ -12,8 +13,10 @@ namespace Axiom.Runtime;
 /// <summary>
 /// Runs a <c>request</c> step: sends an HTTP request and checks assertions on the response.
 /// </summary>
-public sealed class RequestStepExecutor(HttpClient httpClient, AssertionEngine assertionEngine) : IStepExecutor
+public sealed class RequestStepExecutor(HttpClient httpClient, AssertionEngine assertionEngine, NetworkSettings? network = null) : IStepExecutor
 {
+    private readonly NetworkSettings _network = network ?? new NetworkSettings();
+
     /// <summary>
     /// The step type this executor handles.
     /// </summary>
@@ -67,9 +70,27 @@ public sealed class RequestStepExecutor(HttpClient httpClient, AssertionEngine a
         variables[$"{step.Id}_request"] = DescribeRequest(request, body);
 
         var watch = Stopwatch.StartNew();
-        using var response = await httpClient.SendAsync(request, cancellationToken);
-        var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
+        HttpResponseMessage response;
+        string responseBody;
+        try
+        {
+            response = await httpClient.SendAsync(request, cancellationToken);
+            responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
+        }
+        catch (HttpRequestException ex)
+        {
+            // Say which way the request went (direct or which proxy) and what usually fixes it.
+            return StepResults.Error(step, NetworkErrors.Describe(ex, request.RequestUri!, _network));
+        }
+
+        using var _ = response;
         watch.Stop();
+
+        // A 407 through a proxy is the proxy's answer, not the API's: report it as such rather than as a failed check.
+        if (response.StatusCode == System.Net.HttpStatusCode.ProxyAuthenticationRequired && _network.ProxyFor(request.RequestUri!) is { } proxy)
+        {
+            return StepResults.Error(step, NetworkErrors.DescribeProxySignIn(request.RequestUri!, proxy));
+        }
 
         var statusCode = (int)response.StatusCode;
         variables[$"{step.Id}_status"] = statusCode;

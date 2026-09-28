@@ -1,3 +1,4 @@
+using Axiom.Network;
 using Axiom.Parsing;
 using Axiom.Runtime;
 using Axiom.Secrets;
@@ -55,7 +56,9 @@ public static class AxiomServiceCollectionExtensions
         // Per-run services (disposed with the run's scope).
         services.AddSingleton<IDbConnectionFactory, SqliteConnectionFactory>();
         services.AddSingleton<IDbConnectionFactory, SqlServerConnectionFactory>();
-        services.AddScoped<HttpClient>(_ => new HttpClient());
+        // Every call to an API goes through the configured proxy, with the user's sign-in and any extra trusted roots.
+        services.TryAddSingleton(_ => NetworkSettings.FromEnvironment());
+        services.AddScoped<HttpClient>(sp => new HttpClient(AxiomHttp.CreateHandler(sp.GetRequiredService<NetworkSettings>()), disposeHandler: true));
         services.AddScoped<IDbQueryExecutor, DbQueryExecutor>();
         services.AddScoped<IStepExecutor, RequestStepExecutor>();
         services.AddScoped<IStepExecutor, DbQueryStepExecutor>();

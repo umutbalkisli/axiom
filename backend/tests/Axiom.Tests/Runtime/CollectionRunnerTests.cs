@@ -403,7 +403,7 @@ public class CollectionRunnerTests
 
         var preview = await services.GetRequiredService<CollectionRunner>().PreviewAsync(folder.Path, test, 0, new RunOptions());
 
-        Assert.Equal("Connection refused", preview.Result.Steps[0].Error);
+        Assert.StartsWith("Connection refused (request to http://api.test went ", preview.Result.Steps[0].Error);
         Assert.Null(preview.Response!.Status);
         Assert.Equal("http://api.test/down", preview.Response.Request!.Url);
     }
