@@ -301,8 +301,9 @@
 }
 .var-field-highlight {
   pointer-events: none;
+  /* Wrap exactly like a textarea does, so wrapped lines stay under the caret. */
   white-space: pre-wrap;
-  word-break: break-word;
+  overflow-wrap: break-word;
   overflow: hidden;
   color: var(--fg);
   border: 1px solid transparent;
@@ -316,12 +317,20 @@
   padding-top: 6px !important;
   padding-bottom: 6px !important;
 }
+/* The token must take exactly the width of its characters, or every character after it is drawn out of line with
+   the caret of the real field underneath: no padding, margin, border or bolder weight (Bootstrap pads <mark>).
+   The pill's extra room is a shadow, which paints outside the text without taking space. */
 .var-field-highlight .var-token {
   color: var(--accent-emphasis);
   background: var(--accent-subtle);
-  border-radius: 3px;
-  padding: 0 2px;
+  box-shadow: 0 0 0 2px var(--accent-subtle);
+  border-radius: 2px;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  font: inherit;
   font-style: normal;
+  letter-spacing: inherit;
 }
 .var-field-input {
   position: relative;
@@ -402,7 +411,7 @@ textarea.var-field-input {
 }
 .response-text {
   white-space: pre-wrap;
-  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 .json-tree + .json-tree,
 .json-tree + .response-text,
