@@ -1,3 +1,4 @@
+import { getPref } from './preferences.js';
 import { strings } from './strings.js';
 
 const baseTranslations = {
@@ -255,10 +256,10 @@ export const translations = {
 };
 
 export function getLanguage() {
-  return localStorage.getItem('axiom-language') || 'en';
+  return getPref('language', 'en');
 }
 export function getTheme() {
-  return localStorage.getItem('axiom-theme') || 'system';
+  return getPref('theme', 'system');
 }
 export function methodSupportsBody(method) {
   return ['POST', 'PUT', 'PATCH', 'DELETE'].includes(String(method).toUpperCase());

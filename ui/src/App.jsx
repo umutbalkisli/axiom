@@ -16,11 +16,17 @@ import {
 } from './i18n.js';
 import { allFolders, folderOf, isInFolder, statusKey } from './testTree.js';
 import PromptDialog from './components/PromptDialog.jsx';
+import FolderPicker from './components/FolderPicker.jsx';
+import ContextMenu from './components/ContextMenu.jsx';
+import { api } from './api.js';
+import { getPref, setPref } from './preferences.js';
 
-const api = window.axiomApi;
-const RECENT_KEY = 'axiom-recent';
-// The collection that was open when the app last closed; cleared when the user closes it.
-const LAST_OPEN_KEY = 'axiom-last-open';
+// Preference keys. LAST_OPEN_KEY is the collection that was open when the app last closed; cleared when
+// the user closes it.
+const RECENT_KEY = 'recent';
+const LAST_OPEN_KEY = 'lastOpen';
+// Where the folder picker starts next time.
+const LAST_BROWSED_KEY = 'lastBrowsed';
 
 const newStep = (type, index) => ({
   id: `${type}_${index}`,
@@ -72,11 +78,8 @@ const emptyTest = () => ({
 });
 
 function readRecent() {
-  try {
-    return JSON.parse(localStorage.getItem(RECENT_KEY)) || [];
-  } catch {
-    return [];
-  }
+  const recent = getPref(RECENT_KEY, []);
+  return Array.isArray(recent) ? recent : [];
 }
 
 export default function App() {
@@ -91,9 +94,7 @@ export default function App() {
   const [collection, setCollection] = useState(toCollectionState(null));
   const [savedCollection, setSavedCollection] = useState(JSON.stringify(toCollectionState(null)));
   const [collectionName, setCollectionName] = useState('');
-  const [environment, setEnvironment] = useState(
-    () => localStorage.getItem('axiom-environment') || '',
-  );
+  const [environment, setEnvironment] = useState(() => getPref('environment', ''));
   const [secretProviders, setSecretProviders] = useState([]);
   const [aggregations, setAggregations] = useState([]);
   const [localSecretNames, setLocalSecretNames] = useState([]);
@@ -114,9 +115,10 @@ export default function App() {
   // The one open dialog, if any (move to folder, rename folder).
   const [dialog, setDialog] = useState(null);
   // Group tests by 'folder' or 'endpoint' in the sidebar and the test list.
-  const [grouping, setGrouping] = useState(
-    () => localStorage.getItem('axiom-grouping') || 'folder',
-  );
+  const [grouping, setGrouping] = useState(() => getPref('grouping', 'folder'));
+  // The open folder picker or right-click menu, each with the function that answers the one waiting for it.
+  const [picker, setPicker] = useState(null);
+  const [menu, setMenu] = useState(null);
   // The latest outcome of every test that has run, by statusKey; a run of some tests updates only theirs.
   const [statuses, setStatuses] = useState({});
   const toastTimer = useRef(null);
@@ -137,17 +139,17 @@ export default function App() {
   };
 
   useEffect(() => {
-    localStorage.setItem('axiom-language', language);
+    setPref('language', language);
     document.documentElement.lang = language;
   }, [language]);
   useEffect(() => {
-    localStorage.setItem('axiom-environment', environment);
+    setPref('environment', environment);
   }, [environment]);
   useEffect(() => {
-    localStorage.setItem('axiom-grouping', grouping);
+    setPref('grouping', grouping);
   }, [grouping]);
   useEffect(() => {
-    localStorage.setItem('axiom-theme', theme);
+    setPref('theme', theme);
     const media = window.matchMedia('(prefers-color-scheme: dark)');
     const applyTheme = () => {
       const effective = theme === 'system' ? (media.matches ? 'dark' : 'light') : theme;
@@ -187,8 +189,8 @@ export default function App() {
 
   const remember = (folderPath) => {
     const next = [folderPath, ...readRecent().filter((item) => item !== folderPath)].slice(0, 6);
-    localStorage.setItem(RECENT_KEY, JSON.stringify(next));
-    localStorage.setItem(LAST_OPEN_KEY, folderPath);
+    setPref(RECENT_KEY, next);
+    setPref(LAST_OPEN_KEY, folderPath);
     setRecent(next);
   };
 
@@ -216,7 +218,7 @@ export default function App() {
 
   // Reopen the last collection on launch.
   useEffect(() => {
-    const last = localStorage.getItem(LAST_OPEN_KEY);
+    const last = getPref(LAST_OPEN_KEY, null);
     if (!last) return;
     api.checkFolder({ folderPath: last }).then((state) => {
       if (state.exists && state.hasCollection) showFolder(last, true);
@@ -224,8 +226,41 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Asks for a folder with the folder picker; resolves with { folderPath, hasCollection }, or null.
+  const chooseFolder = () =>
+    new Promise((resolve) => {
+      const done = (result) => {
+        setPicker(null);
+        if (result) {
+          const parent = result.folderPath.replace(/[\\/][^\\/]*$/, '');
+          setPref(LAST_BROWSED_KEY, parent || result.folderPath);
+        }
+        resolve(result);
+      };
+      setPicker({ initialPath: folder || getPref(LAST_BROWSED_KEY, ''), done });
+    });
+  // Shows a right-click menu at the event's position (or under the element, when opened from the keyboard)
+  // and resolves with the chosen item's id, or null.
+  const openMenu = (items, event) => {
+    const rect = event?.currentTarget?.getBoundingClientRect?.();
+    const fromKeyboard = !event || (event.clientX === 0 && event.clientY === 0);
+    const x = fromKeyboard && rect ? rect.left + 12 : event.clientX;
+    const y = fromKeyboard && rect ? rect.bottom : event.clientY;
+    return new Promise((resolve) =>
+      setMenu({
+        x,
+        y,
+        items,
+        choose: (id) => {
+          setMenu(null);
+          resolve(id);
+        },
+      }),
+    );
+  };
+
   const openFolder = async () => {
-    const result = await api.chooseFolder();
+    const result = await chooseFolder();
     if (!result) return;
     await showFolder(result.folderPath, result.hasCollection);
     if (result.hasCollection) notify(`${t.collectionLoaded}`);
@@ -234,7 +269,7 @@ export default function App() {
     const state = await api.checkFolder({ folderPath: path });
     if (!state.exists || !state.hasCollection) {
       const next = readRecent().filter((item) => item !== path);
-      localStorage.setItem(RECENT_KEY, JSON.stringify(next));
+      setPref(RECENT_KEY, next);
       setRecent(next);
       notify(t.folderMissing, 'danger');
       return;
@@ -242,7 +277,7 @@ export default function App() {
     await showFolder(path, true);
   };
   const closeCollection = () => {
-    localStorage.removeItem(LAST_OPEN_KEY);
+    setPref(LAST_OPEN_KEY, null);
     setFolder(null);
     setHasCollection(false);
     setCollection(toCollectionState(null));
@@ -266,7 +301,7 @@ export default function App() {
   };
 
   const chooseDestination = async () =>
-    folder && !hasCollection ? { folderPath: folder } : api.chooseFolder();
+    folder && !hasCollection ? { folderPath: folder } : chooseFolder();
 
   const createCollection = async (name) => {
     const destination = await chooseDestination();
@@ -456,28 +491,34 @@ export default function App() {
     }
   };
   // Right-click menu of a test in the sidebar or the collection's test list.
-  const testMenu = async (fileName) => {
-    const choice = await api.showContextMenu([
-      { id: 'open', label: t.openShort },
-      { id: 'run', label: t.runTest, enabled: !running },
-      { separator: true },
-      { id: 'clone', label: t.cloneTest },
-      { id: 'move', label: t.moveToFolder },
-    ]);
+  const testMenu = async (fileName, event) => {
+    const choice = await openMenu(
+      [
+        { id: 'open', label: t.openShort },
+        { id: 'run', label: t.runTest, enabled: !running },
+        { separator: true },
+        { id: 'clone', label: t.cloneTest },
+        { id: 'move', label: t.moveToFolder },
+      ],
+      event,
+    );
     if (choice === 'open') guarded(() => openTest(fileName))();
     if (choice === 'run') run([fileName]);
     if (choice === 'clone') guarded(() => cloneTest(fileName))();
     if (choice === 'move') askMoveTest(fileName);
   };
   // Right-click menu of a folder.
-  const folderMenu = async (path) => {
-    const choice = await api.showContextMenu([
-      { id: 'new', label: t.newTestHere },
-      { id: 'run', label: t.runFolder, enabled: !running },
-      { separator: true },
-      { id: 'rename', label: t.renameFolder },
-      { id: 'delete', label: t.deleteFolder },
-    ]);
+  const folderMenu = async (path, event) => {
+    const choice = await openMenu(
+      [
+        { id: 'new', label: t.newTestHere },
+        { id: 'run', label: t.runFolder, enabled: !running },
+        { separator: true },
+        { id: 'rename', label: t.renameFolder },
+        { id: 'delete', label: t.deleteFolder },
+      ],
+      event,
+    );
     if (choice === 'new') guarded(() => newTest(path))();
     if (choice === 'run') run([`${path}/`]);
     if (choice === 'rename') askRenameFolder(path);
@@ -919,6 +960,15 @@ export default function App() {
         </main>
       </div>
       {dialog && <PromptDialog t={t} {...dialog} close={() => setDialog(null)} />}
+      {picker && (
+        <FolderPicker
+          t={t}
+          initialPath={picker.initialPath}
+          select={picker.done}
+          cancel={() => picker.done(null)}
+        />
+      )}
+      {menu && <ContextMenu {...menu} />}
       {toast && (
         <div className={`toast ${toast.tone}`} role="status">
           <Icon name={toast.tone === 'danger' ? 'xCircle' : 'checkCircle'} size={16} />

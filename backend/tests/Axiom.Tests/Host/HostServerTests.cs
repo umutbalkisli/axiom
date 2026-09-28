@@ -16,12 +16,13 @@ namespace Axiom.Tests.Host;
 public sealed class HostServerTests : IAsyncLifetime
 {
     private const string Token = "test-token-0123456789";
+    private readonly TempFolder _data = new();
     private WebApplication _app = null!;
     private HttpClient _client = null!;
 
     public async Task InitializeAsync()
     {
-        _app = HostServerService.Build(port: 0, Token);
+        _app = HostServerService.Build(port: 0, Token, _data.Path);
         await _app.StartAsync();
         var address = _app.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>()!.Addresses.First();
         _client = new HttpClient { BaseAddress = new Uri(address) };
@@ -31,6 +32,7 @@ public sealed class HostServerTests : IAsyncLifetime
     {
         _client.Dispose();
         await _app.DisposeAsync();
+        _data.Dispose();
     }
 
     private HttpRequestMessage Request(HttpMethod method, string path, string? token = Token, object? body = null)

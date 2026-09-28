@@ -140,7 +140,7 @@ export default function Sidebar({
         onClick={() => openTest(item.fileName)}
         onContextMenu={(event) => {
           event.preventDefault();
-          testMenu(item.fileName);
+          testMenu(item.fileName, event);
         }}
       >
         <span
@@ -272,7 +272,7 @@ export default function Sidebar({
                         onClick={() => toggleFolder(group.folder)}
                         onContextMenu={(event) => {
                           event.preventDefault();
-                          folderMenu(group.folder);
+                          folderMenu(group.folder, event);
                         }}
                         {...dropProps(group.folder)}
                       >

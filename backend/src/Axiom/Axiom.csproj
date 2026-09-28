@@ -6,10 +6,42 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- The program is 'axiom' (axiom.exe on Windows). -->
+    <AssemblyName>axiom</AssemblyName>
+    <RootNamespace>Axiom</RootNamespace>
+  </PropertyGroup>
+
+  <!--
+    Publishing for a platform (dotnet publish -r win-x64 | osx-arm64 | linux-x64 ...) makes one self-contained file:
+    no .NET install needed, the SQLite and SQL Server native libraries inside.
+  -->
+  <PropertyGroup Condition="'$(RuntimeIdentifier)' != ''">
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <!--
+      Compressed (about half the size), except on macOS: there a compressed single file crashes
+      (AccessViolationException in SslStream) on the first HTTPS request after a keychain read, which every run with a
+      local secret does. Uncompressed, it works. Windows and Linux do not use the keychain.
+    -->
+    <EnableCompressionInSingleFile Condition="!$(RuntimeIdentifier.StartsWith('osx'))">true</EnableCompressionInSingleFile>
+    <EnableCompressionInSingleFile Condition="$(RuntimeIdentifier.StartsWith('osx'))">false</EnableCompressionInSingleFile>
+    <DebugType>embedded</DebugType>
+    <!-- Only the executable: no symbol or documentation files next to it. -->
+    <CopyOutputSymbolsToPublishDirectory>false</CopyOutputSymbolsToPublishDirectory>
+    <PublishDocumentationFile>false</PublishDocumentationFile>
+    <PublishReferencesDocumentationFiles>false</PublishReferencesDocumentationFiles>
+    <AllowedReferenceRelatedFileExtensions>.none</AllowedReferenceRelatedFileExtensions>
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\Axiom.Core\Axiom.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Windows DPAPI for locally stored secrets. -->
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.0" />
   </ItemGroup>
 
   <ItemGroup>
@@ -19,5 +51,28 @@
   <ItemGroup>
     <InternalsVisibleTo Include="Axiom.Tests" />
   </ItemGroup>
+
+  <!--
+    The web UI (ui/dist) is built into the executable, so one file is the whole app.
+    Build the UI first (cd ui && npm ci && npm run build), or pass -p:BuildUi=true to have this build do it.
+    The resources are added in a target, not a static item, so a UI built by BuildUi in the same build is included.
+  -->
+  <PropertyGroup>
+    <UiDirectory>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)../../../ui/'))</UiDirectory>
+    <UiDist>$(UiDirectory)dist/</UiDist>
+  </PropertyGroup>
+
+  <Target Name="BuildUi" Condition="'$(BuildUi)' == 'true'" BeforeTargets="EmbedUi">
+    <Exec Command="npm ci" WorkingDirectory="$(UiDirectory)" />
+    <Exec Command="npm run build" WorkingDirectory="$(UiDirectory)" />
+  </Target>
+
+  <Target Name="EmbedUi" BeforeTargets="PrepareForBuild">
+    <ItemGroup>
+      <UiFile Include="$(UiDist)**/*" />
+      <EmbeddedResource Include="@(UiFile)" LogicalName="ui/%(RecursiveDir)%(Filename)%(Extension)" />
+    </ItemGroup>
+    <Warning Condition="!Exists('$(UiDist)index.html')" Text="The web UI is not built (ui/dist is missing), so 'axiom ui' will have no UI. Run 'npm ci &amp;&amp; npm run build' in ui/, or build with -p:BuildUi=true." />
+  </Target>
 
 </Project>

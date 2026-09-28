@@ -5,14 +5,14 @@ Axiom is an API test platform and it's designed to write tests without using a p
 ## What is implemented now
 
 - .NET 10 backend engine with YAML parsing
-- CLI to run collections (`run`) and a local HTTP host (`serve`) used by the desktop app
+- One executable, `axiom`: the CLI (`run`), the app (`ui`, a web UI built into the executable) and a headless API (`serve`)
 - Parallel test-case execution with a bounded channel for backpressure control
 - HTTP request steps and DB query steps
 - SQLite and SQL Server support
 - Collection-level and test-level variables, with `{{variable}}` templating
 - Assertion engine with JSON path support, and a human-readable stdout report (or `--json` output)
 - OpenAPI import: generates one basic scenario per endpoint
-- Electron + React desktop app:
+- The app (`axiom ui`, React, opened in an app window of Edge or Chrome):
   - open or create a collection folder
   - import a collection from an OpenAPI/Swagger URL
   - edit collection variables and run settings
@@ -22,7 +22,7 @@ Axiom is an API test platform and it's designed to write tests without using a p
   - **Send** a single step while building a test: the steps up to it run as they are in the editor (saved or not), and it shows what was sent (method, full URL, headers and body, or the SQL; opened by itself when the call fails, with **Copy as cURL**) and what came back (status, headers, JSON body, or SQL rows); click any value to add a check for it
   - run the whole collection, one test, or only the tests that failed last time; results appear as each test finishes, and a run can be cancelled
   - see, per test, which step and assertion failed and why (expected vs actual)
-  - reopens the last collection on launch, with a recent-collections list
+  - reopens the last collection on launch, with a recent-collections list; right-click menus and a folder picker built in
   - English and Turkish UI, light/dark/system theme
 
 ## Project structure
@@ -33,7 +33,7 @@ backend/
   tests/Axiom.Tests/  xUnit tests for the engine and the host
   src/Axiom.Core/     engine library (no ASP.NET dependency)
     Models/           YAML contracts (collection, test case, step, assertion, ...)
-    Documents/        DTOs exchanged with the desktop app
+    Documents/        DTOs exchanged with the app
     Parsing/          YAML collection loader, collection folder layout
     Runtime/          collection runner, test-case executor, step executors,
                       assertion engine and operators, DB query executor,
@@ -42,11 +42,13 @@ backend/
     Secrets/          secret providers (env, file, k8s, vault, local), resolver, output masking
     Services/         collection management, collection initializer, OpenAPI importer
     AxiomServiceCollectionExtensions.cs   AddAxiomCore() DI registration
-  src/Axiom/          executable: CLI (`run`, `serve`) and local HTTP host
-    Hosting/          HTTP endpoints used by the desktop app
+  src/Axiom/          the `axiom` executable: CLI (`run`, `ui`, `serve`) and local HTTP host
+    Hosting/          HTTP endpoints, session cookie and security checks, serving the web UI,
+                      folder browser, preferences, opening the app window
+    LocalSecrets/     local secret values in the OS secure storage (DPAPI, Keychain, libsecret)
     Services/         stdout report formatter
-desktop/              Electron shell + Vite/React renderer
-samples/              local sample collections (git-ignored)
+ui/                   Vite/React web UI; its build (ui/dist) is embedded in the executable
+samples/              sample collections
 ```
 
 ## Extending the engine
@@ -72,7 +74,9 @@ The xUnit suite (about 280 tests, a few seconds) covers the assertion engine (ev
 ## Requirements
 
 - .NET SDK 10
-- Node.js and npm (desktop app only)
+- Node.js and npm (to build the UI)
+
+Users of a published `axiom` executable need neither: it is self-contained.
 
 ## CLI usage
 
@@ -86,7 +90,8 @@ dotnet run --project backend/src/Axiom -- serve [--port <number>]
 ```
 
 - `run` executes every `tests/**/*.test.yaml` in the collection and prints a report. With `--json` the result is printed as a JSON envelope (`{ ok, data, error }`).
-- `serve` starts the local HTTP host on `127.0.0.1` (default port `50743`; `--port 0` picks a free one). The desktop app starts this itself.
+- `serve` starts the API alone (no UI) on `127.0.0.1` (default port `50743`; `--port 0` picks a free one), for other tools. `ui` starts the app (see [The app](#the-app)).
+- A secret whose provider is `local` is read from this machine's secure storage, where the app keeps it, so `axiom run` works on the machine you set the collection up on. On a build server nothing is stored there: use an environment override (`--env ci`, see [Secrets](#secrets)).
 
 Exit codes for `run`:
 
@@ -101,13 +106,18 @@ Reports tell apart two different things that both stop a test from passing:
 - **Failed**: the check ran and the API did not behave as expected (`Expected '==' with value '404', actual '200'`). If the path did not exist at all, the message says so.
 - **Error** (`ERROR` in the text report, `outcome: "Error"` in `--json`): the check or step could not be evaluated, which points at the test or its environment rather than the API: an unknown operator, aggregation or source, an invalid regular expression, an unresolved `{{variable}}`, ordering a list, an unreachable server. Each assertion, step and test has an `outcome` of `Passed`, `Failed` or `Error`; a test with any error counts as an error.
 
-The summary line and the JSON result count both (`failedCount`, `errorCount`), and the desktop app shows errors in amber apart from failures in red. The exit code is `2` when anything did not pass, failed or error.
+The summary line and the JSON result count both (`failedCount`, `errorCount`), and the app shows errors in amber apart from failures in red. The exit code is `2` when anything did not pass, failed or error.
 
 ## Local host API
 
-Used by the desktop app (via Electron IPC). All collection endpoints take a `folderPath` query parameter.
+Used by the web UI (and available to other tools through `serve`). All collection endpoints take a `folderPath` query parameter.
 
-Every request must carry `Authorization: Bearer <token>`; anything else gets `401`. The API reads and writes files and runs tests, so neither another program on the machine nor a web page open in a browser may call it. The token comes from the `AXIOM_HOST_TOKEN` environment variable: the desktop app generates a new one at every launch and starts the host on a free port. Started by hand without it, `serve` generates a token and prints it (`AXIOM_HOST_TOKEN <token>`).
+The API reads and writes files and runs tests, so neither another program on the machine nor a web page open in a browser may call it:
+
+- Every request needs the host's token: as `Authorization: Bearer <token>`, or, for the UI, as its session cookie. Anything else gets `401`.
+- `axiom ui` makes a new token at every launch and opens the UI with a one-time link (`/?token=...`). The host swaps it for an `HttpOnly`, `SameSite=Strict` cookie (pages of other sites never send it) and redirects, so the token leaves the address bar.
+- Only requests addressed to `127.0.0.1`, `localhost` or `[::1]` are served (`421` otherwise), which stops a web page that points its own domain name at this machine (DNS rebinding).
+- `serve` takes its token from `AXIOM_HOST_TOKEN`, or generates one and prints it (`AXIOM_HOST_TOKEN <token>`).
 
 | Method | Route | Purpose |
 | --- | --- | --- |
@@ -128,6 +138,14 @@ Every request must carry `Authorization: Bearer <token>`; anything else gets `40
 | POST | `/api/folders/delete` | Delete the tests in a folder, keeping other files (body: `folder`) |
 | DELETE | `/api/tests/{path}` | Delete a scenario |
 | POST | `/api/tests/preview` | Run an unsaved test's steps up to one of them and return what that step received (body: `test`, `stepIndex`, optional `localSecrets`, `environment`) |
+| GET | `/api/local-secrets` | Names of the locally stored secrets of a collection (values are never returned) |
+| POST | `/api/local-secrets` | Store a local secret's value in the OS secure storage (body: `name`, `value`) |
+| DELETE | `/api/local-secrets/{name}` | Remove a local secret |
+| GET | `/api/fs/list` | A folder's subfolders, for the folder picker (`path`; default: home), marking collections |
+| GET | `/api/fs/check` | Whether a folder exists and holds a collection (`path`) |
+| POST | `/api/fs/mkdir` | Create a folder (body: `parent`, `name`) |
+| GET, POST | `/api/preferences` | The UI's preferences (POST merges; a `null` removes a key) |
+| POST | `/api/session/ping`, `/api/session/goodbye` | The UI is still open / its window is closing (see [The app](#the-app)) |
 | POST | `/api/run` | Run the collection (optional body: `localSecrets`, `environment`, `tests` to run only some: paths, ids, or `orders/` for a whole folder); streams progress, see below |
 
 `/api/run` answers with newline-delimited JSON (`application/x-ndjson`), one event per line as it happens: `{"type":"started","total":N}`, then `{"type":"test","test":{...}}` as each test finishes, then `{"type":"completed","exitCode":0,"report":"...","result":{...}}`, or `{"type":"failed","message":"..."}` if the run could not start. Closing the request cancels the run.
@@ -164,7 +182,7 @@ The test's real name lives inside the file (`name:`); the file name is only a sh
 
 ### Test ids
 
-Every test gets a stable `id:` when it is created (16 hex characters, e.g. `id: 3f9c2a7be41d06f5`); a test written before ids existed gets one the next time it is saved. The name is the label, the path is the location, and the id is the identity: it never changes, so a test keeps it through renames and moves (the desktop app remembers a test's last result by it). A clone gets a new id. Two files with the same id (typically a file copied by hand) stop a run with both files named: remove the `id:` line from the copy, or use **Clone**.
+Every test gets a stable `id:` when it is created (16 hex characters, e.g. `id: 3f9c2a7be41d06f5`); a test written before ids existed gets one the next time it is saved. The name is the label, the path is the location, and the id is the identity: it never changes, so a test keeps it through renames and moves (the app remembers a test's last result by it). A clone gets a new id. Two files with the same id (typically a file copied by hand) stop a run with both files named: remove the `id:` line from the copy, or use **Clone**.
 
 ## Shared steps
 
@@ -202,7 +220,7 @@ steps:
 - `run: each` runs the steps again inside each test, with that test's variables.
 - Groups can include other groups. A cycle, or a `ref` that does not exist, is reported instead of hanging.
 - A group's file name stays fixed once created, because tests refer to it. A group that is still included cannot be deleted.
-- In the desktop app: **Collection → Shared steps** to create groups, then **Use shared steps** in the test builder. Results show the shared steps nested under the include step.
+- In the app: **Collection → Shared steps** to create groups, then **Use shared steps** in the test builder. Results show the shared steps nested under the include step.
 
 ## YAML format (v0)
 
@@ -274,7 +292,7 @@ A request `body` is sent as `application/json` when it is valid JSON and as `tex
 
 Step types: `request` (`method`, `url`, `query_params`, `headers`, `body`), `db_query` (`connection`, `sql`, `save_as`) and `include` (`ref`, see Shared steps).
 
-Variable names (collection and test `variables`, and `save_as`) may contain only letters and underscores (`base_url`, `todo_id`); `secret` is reserved. A collection that breaks this rule fails to load with the offending file and name, and the desktop app rejects such names when saving.
+Variable names (collection and test `variables`, and `save_as`) may contain only letters and underscores (`base_url`, `todo_id`); `secret` is reserved. A collection that breaks this rule fails to load with the offending file and name, and the app rejects such names when saving.
 
 Each step also stores its results in the context as `<step_id>_status`, `<step_id>_duration_ms`, `<step_id>_response_text`, `<step_id>_response_json` (request) and `<step_id>_rows`, `<step_id>_row_count` (DB), so later steps can reference them. What a step sent is stored too, before it is sent: `<step_id>_request` (`method`, `url`, `headers`, `body`, with every template resolved) and `<step_id>_sql`.
 
@@ -302,14 +320,14 @@ The same secret often comes from different places: a local value on a laptop, en
 ```yaml
 secrets:
   db_password:
-    provider: local            # default: value kept on this machine (desktop)
+    provider: local            # default: value kept on this machine (entered in the app)
     key: db_password
     environments:
       ci:   { provider: env, key: DB_PASSWORD }
       prod: { provider: k8s, key: "orders-db/password" }
 ```
 
-Select the environment with `axiom run <folder> --env ci` (or `AXIOM_ENVIRONMENT=ci`), or with the environment dropdown next to **Run** in the desktop app (shown once any secret has an override). A secret with no override for the selected environment uses its default source, and environment names are case-insensitive.
+Select the environment with `axiom run <folder> --env ci` (or `AXIOM_ENVIRONMENT=ci`), or with the environment dropdown next to **Run** in the app (shown once any secret has an override). A secret with no override for the selected environment uses its default source, and environment names are case-insensitive.
 
 All declared secrets are read before a run starts; if any cannot be read the run fails with a message naming the secret and provider (never a value).
 
@@ -319,7 +337,7 @@ All declared secrets are read before a run starts; if any cannot be read the run
 | `file` | `relative/file/name` | `AXIOM_SECRETS_DIR`. Works with mounted Kubernetes secret volumes and Docker secrets; keys cannot escape the directory |
 | `k8s` | `secret-name/data-key` or `namespace/secret-name/data-key` | In a pod it uses the service account (needs `get` on the secret). Elsewhere set `AXIOM_K8S_API_URL` (+ `AXIOM_K8S_TOKEN`); `AXIOM_K8S_NAMESPACE` sets the default namespace |
 | `vault` | `mount/path#field` | `VAULT_ADDR`, `VAULT_TOKEN`, optional `VAULT_NAMESPACE`; KV v2 by default, `AXIOM_VAULT_KV_VERSION=1` for KV v1 |
-| `local` | secret name | Values are supplied by the caller for a single run. The desktop app keeps them encrypted with the OS secure storage (Keychain / DPAPI / libsecret) outside the collection folder and never shows them again |
+| `local` | secret name | Values are supplied by the caller for a single run. The app keeps them in the OS secure storage (DPAPI on Windows, the login Keychain on macOS, libsecret's `secret-tool` on Linux) outside the collection folder, never shows them again, and refuses to store them when no secure storage is available. `axiom run` on the same machine reads them from there |
 
 Provider connection settings come only from the environment, never from collection files, so a shared collection cannot redirect secret lookups. Any secret value of 4+ characters is replaced with `********` in reports and JSON output. To add another store, implement `ISecretProvider` and register it (see "Extending the engine").
 
@@ -331,7 +349,7 @@ Sources:
 - DB step: `row_count`, `duration_ms`, `rows`
 - Any context variable name can also be referenced
 
-In the desktop builder, source and path are typed as one expression, e.g. `body.items.*.price` (the first segment is the source, the rest is the path); the YAML keeps them as separate `source` and `path` fields.
+In the builder, source and path are typed as one expression, e.g. `body.items.*.price` (the first segment is the source, the rest is the path); the YAML keeps them as separate `source` and `path` fields.
 
 A step's **saved result** (`save_as: my_response`) works as a source and in templates. Its plain names are the fields of the response body: `my_response.items.0.name`. The HTTP response itself lives under `@http`, which can never clash with a body field:
 
@@ -373,7 +391,7 @@ Add `aggregate` to compare a computed value instead of the value itself:
   expected: 1000
 ```
 
-Aggregations fail with a clear message instead of guessing: a missing value or a non-list can't be aggregated, `sum` over non-numbers fails, and `avg`/`min`/`max` of an empty list fail (`sum` of an empty list is 0). Aggregation names are case-insensitive and extensible via `IAssertionAggregation`. In the desktop builder it is the aggregation dropdown after the path field.
+Aggregations fail with a clear message instead of guessing: a missing value or a non-list can't be aggregated, `sum` over non-numbers fails, and `avg`/`min`/`max` of an empty list fail (`sum` of an empty list is 0). Aggregation names are case-insensitive and extensible via `IAssertionAggregation`. In the builder it is the aggregation dropdown after the path field.
 
 Operators:
 
@@ -416,21 +434,45 @@ How values are compared:
 - Failure messages show a short preview of large values, while the result still keeps the complete actual and expected values.
 - A response body is only parsed as JSON when an assertion or a later step reads it, so status-only checks on large responses are cheap.
 
-## Electron desktop
+## The app
 
 ```bash
-cd desktop
-npm install
-npm start
+axiom ui                 # or double-click axiom.exe on Windows
 ```
 
-`npm start` builds the React renderer with Vite and launches Electron, which spawns `dotnet run` on the backend project to start the local host. The .NET SDK must be installed and discoverable (common install paths are checked, otherwise `dotnet` from `PATH` is used).
+`axiom ui` starts the local host on a free port and opens the UI in an app window of Edge or Chrome (no tabs or address bar; the default browser when neither is installed). It is the same program as the CLI: one executable, nothing else to install.
 
-Other scripts: `npm run build` (renderer only) and `npm run format` (Prettier).
+- **It ends with its window.** The UI pings the host while it is open and says goodbye when its window closes; the host then stops (a reload pings again, so it does not). It also stops when no UI has been heard from for 3 minutes, or when none connected within 5 minutes. Press Ctrl+C to stop it from a terminal.
+- **Options:** `--no-open` prints the link instead of opening it (open it in any browser); `--port <n>` picks the port; `--ui-dir <folder>` serves the UI from a folder instead of the built-in copy (for UI development).
+- **Where it keeps things:** preferences (language, theme, recent collections) and the list of local secrets in `%APPDATA%\Axiom` on Windows or `~/.config/Axiom` elsewhere (`AXIOM_DATA_DIR` overrides it); local secret values in the OS secure storage (see [Secrets](#secrets)).
+- **Proxies:** the UI only talks to the local host on `127.0.0.1`, which browsers never send through a proxy; all outgoing traffic (your APIs, OpenAPI documents) is made by the engine.
+
+Moving from the Electron app: local secret values it stored cannot be read by the new app (they were encrypted by Electron); enter them once more under **Collection → Secrets**.
+
+### Building
+
+```bash
+cd ui && npm ci && npm run build && cd ..      # the web UI, into ui/dist
+dotnet run --project backend/src/Axiom -- ui    # the app, from source
+```
+
+The build embeds `ui/dist` into the executable (a build without it warns, and `axiom ui` then has no UI); `-p:BuildUi=true` runs the npm steps as part of the .NET build.
+
+**While working on the UI:** `npm run watch` in `ui/` rebuilds on every change, and `dotnet run --project backend/src/Axiom -- ui --ui-dir ui/dist` serves that folder, so reloading the page shows the change without rebuilding the executable. `npm run format` runs Prettier.
+
+### Publishing a single executable
+
+```bash
+dotnet publish backend/src/Axiom -c Release -r win-x64   -p:BuildUi=true -o publish/win-x64     # axiom.exe
+dotnet publish backend/src/Axiom -c Release -r osx-arm64 -p:BuildUi=true -o publish/osx-arm64   # axiom
+dotnet publish backend/src/Axiom -c Release -r linux-x64 -p:BuildUi=true -o publish/linux-x64   # axiom
+```
+
+Each is one self-contained file with the .NET runtime, the UI and the SQLite / SQL Server native libraries inside: about 55 MB on Windows and Linux (compressed) and 120 MB on macOS (not compressed: a compressed single file crashes there on the first HTTPS request after a keychain read). Sign them for distribution (Authenticode on Windows, a Developer ID and notarization on macOS) so SmartScreen and Gatekeeper let them run.
 
 ## Next build targets
 
 1. JSON path / response schema assertion builder in UI
 2. Rich report screen with trends and failed-step diagnostics
 3. Plugin-based connectors (load extra providers, step types and operators from a plugins folder)
-4. Packaging for Windows/macOS installers
+4. Code signing and notarized downloads for the published executables

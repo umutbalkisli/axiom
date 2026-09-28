@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Security.Cryptography;
 using System.Text.Json;
 using Axiom.Hosting;
+using Axiom.LocalSecrets;
 using Axiom.Runtime;
 using Axiom.Services;
 using Axiom.Validation;
@@ -26,6 +27,13 @@ internal static class ProgramEntry
 
         if (parsed.Args.Length == 0)
         {
+            // Double-clicked in Windows Explorer: open the app, without the empty console window.
+            if (WindowsConsole.StartedByDoubleClick())
+            {
+                WindowsConsole.Hide();
+                return await HandleUiAsync(["ui"]);
+            }
+
             return PrintHelpAndReturn();
         }
 
@@ -38,6 +46,7 @@ internal static class ProgramEntry
             {
                 "run" => await HandleRunAsync(rest),
                 "serve" => await HandleServeAsync(rest),
+                "ui" => await HandleUiAsync(rest),
                 _ => HandleUnknownCommand(),
             };
         }
@@ -104,7 +113,9 @@ internal static class ProgramEntry
         try
         {
             await using var services = new ServiceCollection().AddAxiomCore().BuildServiceProvider();
-            var result = await services.GetRequiredService<CollectionRunner>().RunAsync(args[1], new RunOptions { Environment = environment });
+            // "local" secrets: the values stored on this machine by the app (secure storage), if any.
+            var localSecrets = new LocalSecretStore(new LazySecureStorage(), AppData.Directory).Values(args[1]);
+            var result = await services.GetRequiredService<CollectionRunner>().RunAsync(args[1], new RunOptions { Environment = environment, LocalSecrets = localSecrets });
 
             if (isJsonResponseMode)
             {
@@ -125,41 +136,79 @@ internal static class ProgramEntry
 
     private static async Task<int> HandleServeAsync(string[] args)
     {
-        var port = 50743;
-        var index = 1;
-        while (index < args.Length)
+        const string usage = "Usage: axiom serve [--port <number>]";
+        var (port, portError) = ParsePort(args, 50743);
+        if (portError)
         {
-            if (!string.Equals(args[index], "--port", StringComparison.OrdinalIgnoreCase))
-            {
-                index++;
-                continue;
-            }
-
-            if (index + 1 >= args.Length || !int.TryParse(args[index + 1], out port) || port is < 0 or > 65535)
-            {
-                return await WriteUsageAndReturnAsync("Usage: axiom serve [--port <number>]");
-            }
-
-            index += 2;
+            return await WriteUsageAndReturnAsync(usage);
         }
 
-        // The desktop app passes its own token; started by hand, the host makes one up and prints it.
+        // A caller that starts the host passes its own token; started by hand, the host makes one up and prints it.
         var token = Environment.GetEnvironmentVariable(HostTokenVariable);
         if (string.IsNullOrWhiteSpace(token))
         {
-            token = RandomNumberGenerator.GetHexString(64, lowercase: true);
+            token = NewToken();
             Console.WriteLine($"AXIOM_HOST_TOKEN {token}");
         }
 
-        await HostServerService.RunAsync(port, token, CancellationToken.None);
+        await HostServerService.RunAsync(new HostOptions { Port = port, Token = token }, onReady: null, CancellationToken.None);
         return 0;
+    }
+
+    /// <summary>
+    /// Starts the host with the web UI on a free port and opens it. The program ends when the UI window is closed.
+    /// </summary>
+    private static async Task<int> HandleUiAsync(string[] args)
+    {
+        const string usage = "Usage: axiom ui [--port <number>] [--no-open] [--ui-dir <folder>]";
+        var (port, portError) = ParsePort(args, 0);
+        var (uiDirectory, _) = ExtractOption(args, "--ui-dir");
+        if (portError || (uiDirectory is not null && !Directory.Exists(uiDirectory)))
+        {
+            return await WriteUsageAndReturnAsync(usage);
+        }
+
+        var open = !args.Any(a => string.Equals(a, "--no-open", StringComparison.OrdinalIgnoreCase));
+        var options = new HostOptions
+        {
+            Port = port,
+            Token = NewToken(),
+            Ui = true,
+            UiDirectory = uiDirectory ?? Environment.GetEnvironmentVariable("AXIOM_UI_DIR"),
+        };
+
+        await HostServerService.RunAsync(options, address =>
+        {
+            var url = $"{address}/?token={options.Token}";
+            Console.WriteLine($"Axiom is running. Open {url}");
+            Console.WriteLine("It stops when its window is closed (or press Ctrl+C).");
+            if (open)
+            {
+                BrowserLauncher.Open(url);
+            }
+        }, CancellationToken.None);
+        return 0;
+    }
+
+    private static string NewToken() => RandomNumberGenerator.GetHexString(64, lowercase: true);
+
+    private static (int Port, bool Error) ParsePort(string[] args, int fallback)
+    {
+        var (value, _) = ExtractOption(args, "--port");
+        if (value is null)
+        {
+            return args.Any(a => string.Equals(a, "--port", StringComparison.OrdinalIgnoreCase)) ? (fallback, true) : (fallback, false);
+        }
+
+        return int.TryParse(value, out var port) && port is >= 0 and <= 65535 ? (port, false) : (fallback, true);
     }
 
     private static void PrintHelp()
     {
-        Console.WriteLine("Axiom CLI");
+        Console.WriteLine("Axiom");
+        Console.WriteLine("  axiom ui [--port <number>] [--no-open]           open the app (also: double-click the program on Windows)");
         Console.WriteLine("  axiom run <collection-folder> [--env <name>] [--json]");
-        Console.WriteLine("  axiom serve [--port <number>]   (0 picks a free port; requests need 'Authorization: Bearer $AXIOM_HOST_TOKEN')");
+        Console.WriteLine("  axiom serve [--port <number>]   API only (0 picks a free port; requests need 'Authorization: Bearer $AXIOM_HOST_TOKEN')");
     }
 
     private static async Task<int> WriteUsageAndReturnAsync(string message)

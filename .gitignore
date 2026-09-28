@@ -6,6 +6,7 @@ samples.local/
 node_modules/
 dist/
 out/
+publish/
 
 *.user
 *.suo

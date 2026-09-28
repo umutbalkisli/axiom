@@ -82,7 +82,7 @@ function TestsTab({
       key={item.fileName}
       onContextMenu={(event) => {
         event.preventDefault();
-        testMenu(item.fileName);
+        testMenu(item.fileName, event);
       }}
     >
       <button type="button" className="list-row" onClick={() => openTest(item.fileName)}>
@@ -151,7 +151,7 @@ function TestsTab({
               section.folder
                 ? (event) => {
                     event.preventDefault();
-                    folderMenu(section.folder);
+                    folderMenu(section.folder, event);
                   }
                 : undefined
             }
