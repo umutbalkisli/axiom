@@ -2,6 +2,12 @@
 
 Axiom is an API test platform and it's designed to write tests without using a programming language. Test scenarios are stored as YAML files so they can be versioned in Git and executed consistently in CI/CD. For advanced users it also supports SQL queries.
 
+## See it in action
+
+https://github.com/user-attachments/assets/ba9556b1-94f8-465e-90f9-8951f2a48f16
+
+
+
 ## What is implemented now
 
 - .NET 10 backend engine with YAML parsing
